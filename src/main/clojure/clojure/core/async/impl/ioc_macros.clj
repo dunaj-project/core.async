@@ -470,14 +470,14 @@
         result))))
 
 ;; given an sexpr, dispatch on the first item
-(defmulti sexpr-to-ssa (fn [[x & _]]
-                         x))
+(defmulti sexpr-to-ssa
+  (fn [[x & _]]
+    (or (resolve x)
+        (throw (Exception. "go special is not a symbol")))))
 
 (defn is-special? [x]
   (let [^clojure.lang.MultiFn mfn sexpr-to-ssa]
-    (.getMethod mfn x)))
-
-
+    (.getMethod mfn (resolve x))))
 
 (defn default-sexpr [args]
   (gen-plan
@@ -492,7 +492,7 @@
     _ (push-alter-binding :locals assoc sym bind-id)]
    bind-id))
 
-(defmethod sexpr-to-ssa 'let*
+(defmethod sexpr-to-ssa #'clojure.core/let*
   [[_ binds & body]]
   (let [parted (partition 2 binds)]
     (gen-plan
@@ -503,7 +503,7 @@
                   (range (count parted))))]
      (last body-ids))))
 
-(defmethod sexpr-to-ssa 'loop*
+(defmethod sexpr-to-ssa #'clojure.core/loop*
   [[_ locals & body]]
   (let [parted (partition 2 locals)
         syms (map first parted)
@@ -541,13 +541,13 @@
       ret-id (add-instruction (->Const ::value))]
      ret-id)))
 
-(defmethod sexpr-to-ssa 'do
+(defmethod sexpr-to-ssa #'clojure.core/do
   [[_ & body]]
   (gen-plan
    [ids (all (map item-to-ssa body))]
    (last ids)))
 
-(defmethod sexpr-to-ssa 'case
+(defmethod sexpr-to-ssa #'clojure.core/case
   [[_ val & body]]
   (let [clauses (partition 2 body)
         default (when (odd? (count body))
@@ -582,13 +582,13 @@
       ret-id (add-instruction (->Const ::value))]
      ret-id)))
 
-(defmethod sexpr-to-ssa 'quote
+(defmethod sexpr-to-ssa #'clojure.core/quote
   [expr]
   (gen-plan
    [ret-id (add-instruction (->Const expr))]
    ret-id))
 
-(defmethod sexpr-to-ssa '.
+(defmethod sexpr-to-ssa #'clojure.core/.
   [[_ cls-or-instance method & args]]
   (let [args (if (seq? method)
                (drop 1 method)
@@ -602,7 +602,7 @@
       ret-id (add-instruction (->Dot cls-id method args-ids))]
      ret-id)))
 
-(defmethod sexpr-to-ssa 'try
+(defmethod sexpr-to-ssa #'clojure.core/try
   [[_ & body]]
   (let [finally-fn (every-pred seq? (comp (partial = 'finally) first))
         catch-fn (every-pred seq? (comp (partial = 'catch) first))
@@ -651,7 +651,7 @@
       ret (add-instruction (->Const ::value))]
      ret)))
 
-(defmethod sexpr-to-ssa 'recur
+(defmethod sexpr-to-ssa #'clojure.core/recur
   [[_ & vals]]
   (gen-plan
    [val-ids (all (map item-to-ssa vals))
@@ -667,7 +667,7 @@
     _ (add-instruction (->Jmp nil recur-point))]
    ::terminated))
 
-(defmethod sexpr-to-ssa 'if
+(defmethod sexpr-to-ssa #'clojure.core/if
   [[_ test then else]]
   (gen-plan
    [test-id (item-to-ssa test)
@@ -696,7 +696,7 @@
     val-id (add-instruction (->Const ::value))]
    val-id))
 
-(defmethod sexpr-to-ssa 'fn*
+(defmethod sexpr-to-ssa #'clojure.core/fn*
   [& fn-expr]
   ;; For fn expressions we just want to record the expression as well
   ;; as a list of all known renamed locals
