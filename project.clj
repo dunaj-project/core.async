@@ -1,4 +1,4 @@
-(defproject core.async "0.1.0-SNAPSHOT"
+(defproject core.async "2.0.0-dunaj-SNAPSHOT"
   :description "Facilities for async programming and communication in Clojure"
   :url "https://github.com/clojure/core.async"
   :license {:name "Eclipse Public License"
