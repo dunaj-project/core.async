@@ -51,9 +51,9 @@
                      (recur b a (dec n)) ;; swap bindings
                      [a b]))))
     (is= 1
-        (runner (loop [x 0
-                       y (inc x)]
-                  y))))
+         (runner (loop [x 0
+                        y (inc x)]
+                   y))))
 
   (testing "let expressions"
     (is= 3
@@ -92,9 +92,16 @@
                (pause x))
              42)))
 
-  (testing "set!"
+  (testing "set! with field"
     (let [x (js-obj)]
-      (runner (set! (.-foo x) "bar"))))
+      (runner (set! (.-foo x) "bar")
+              (is= (.-foo x) "bar"))
+      (is= (.-foo x) "bar")))
+
+  (testing "set! with var"
+    (def test-target 0)
+    (runner (set! test-target 42))
+    (is= test-target 42))
 
   (testing "keywords as functions"
     (is (= :bar

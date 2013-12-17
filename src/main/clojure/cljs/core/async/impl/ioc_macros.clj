@@ -283,14 +283,16 @@
       (let [~@(interleave local-names local-refs)]
         ~@fn-expr)]))
 
-(defrecord Dot [cls-or-instance method args]
+(defrecord Dot [target method args]
   IInstruction
-  (reads-from [this] `[~cls-or-instance ~method ~@args])
+  (reads-from [this] `[~target ~method ~@args])
   (writes-to [this] [(:id this)])
   (block-references [this] [])
   IEmittableInstruction
   (emit-instruction [this state-sym]
-    `[~(:id this) (. ~cls-or-instance ~method ~@args)]))
+    (if (.startsWith (name method) "-")
+      `[~(:id this) (. ~target ~method)]
+      `[~(:id this) (. ~target ~(cons method args))])))
 
 (defrecord Jmp [value block]
   IInstruction
@@ -324,8 +326,9 @@
   (block-references [this] [])
   IEmittableInstruction
   (emit-instruction [this state-sym]
-    `[~(:id this)
-      (set! (~field ~object) ~val)]))
+    (if field
+      `[~(:id this) (set! (~field ~object) ~val)]
+      `[~(:id this) (set! ~object          ~val)])))
 
 (defrecord CondBr [test then-block else-block]
   IInstruction
@@ -466,12 +469,26 @@
      ret-id)))
 
 (defmethod sexpr-to-ssa 'set!
-  [[_ [field obj] val]]
-  (gen-plan
-   [obj-id (item-to-ssa obj)
-    val-id (item-to-ssa val)
-    ret-id (add-instruction (->Set! field obj-id val-id))]
-   ret-id))
+  [[_ assignee val]]
+  (let [target (cond
+                 (symbol? assignee)
+                 assignee
+                 (and (list? assignee)
+                      (= (count assignee) 2))
+                 (second assignee))
+        field (if (list? assignee)
+                (first assignee))]
+    (gen-plan
+     [locals (get-binding :locals)
+
+      target-id (if (contains? locals target)
+                  (fn [p]
+                    [(get locals target) p])
+                  (item-to-ssa target))
+      val-id    (item-to-ssa val)
+
+      ret-id (add-instruction (->Set! field target-id val-id))]
+     ret-id)))
 
 (defmethod sexpr-to-ssa 'do
   [[_ & body]]
@@ -521,17 +538,17 @@
    ret-id))
 
 (defmethod sexpr-to-ssa '.
-  [[_ cls-or-instance method & args]]
+  [[_ target method & args]]
   (let [args (if (seq? method)
-               (drop 1 method)
+               (next method)
                args)
         method (if (seq? method)
                  (first method)
                  method)]
     (gen-plan
-     [cls-id (item-to-ssa cls-or-instance)
+     [target-id (item-to-ssa target)
       args-ids (all (map item-to-ssa args))
-      ret-id (add-instruction (->Dot cls-id method args-ids))]
+      ret-id (add-instruction (->Dot target-id method args-ids))]
      ret-id)))
 
 (defmethod sexpr-to-ssa 'try
