@@ -979,10 +979,13 @@
 (def async-custom-terminators
   {'<! `take!
    'clojure.core.async/<! `take!
+   'dunaj.async/<! `take!
    '>! `put!
    'clojure.core.async/>! `put!
+   'dunaj.async/>! `put!
    'alts! 'clojure.core.async/ioc-alts!
    'clojure.core.async/alts! 'clojure.core.async/ioc-alts!
+   'dunaj.async/alts! 'clojure.core.async/ioc-alts!
    :Return `return-chan})
 
 
