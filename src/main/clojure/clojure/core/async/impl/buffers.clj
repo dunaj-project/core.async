@@ -8,12 +8,13 @@
 
 (ns ^{:skip-wiki true}
   clojure.core.async.impl.buffers
-  (:require [clojure.core.async.impl.protocols :as impl])
-  (:import [java.util LinkedList Queue]))
+  (:require #_[clojure.core.async.impl.protocols :as impl]
+            [dunaj.buffer :as db])
+  #_(:import [java.util LinkedList Queue]))
 
 (set! *warn-on-reflection* true)
 
-(deftype FixedBuffer [^LinkedList buf ^long n]
+#_(deftype FixedBuffer [^LinkedList buf ^long n]
   impl/Buffer
   (full? [this]
     (= (.size buf) n))
@@ -27,10 +28,10 @@
     (.size buf)))
 
 (defn fixed-buffer [^long n]
-  (FixedBuffer. (LinkedList.) n))
+  (db/buffer n))
 
 
-(deftype DroppingBuffer [^LinkedList buf ^long n]
+#_(deftype DroppingBuffer [^LinkedList buf ^long n]
   impl/UnblockingBuffer
   impl/Buffer
   (full? [this]
@@ -45,9 +46,9 @@
     (.size buf)))
 
 (defn dropping-buffer [n]
-  (DroppingBuffer. (LinkedList.) n))
+  (db/dropping-buffer n))
 
-(deftype SlidingBuffer [^LinkedList buf ^long n]
+#_(deftype SlidingBuffer [^LinkedList buf ^long n]
   impl/UnblockingBuffer
   impl/Buffer
   (full? [this]
@@ -63,4 +64,4 @@
     (.size buf)))
 
 (defn sliding-buffer [n]
-  (SlidingBuffer. (LinkedList.) n))
+  (db/sliding-buffer n))

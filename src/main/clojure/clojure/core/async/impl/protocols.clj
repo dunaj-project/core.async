@@ -12,13 +12,13 @@
 
 (def ^:const ^int MAX-QUEUE-SIZE 1024)
 
-(defprotocol ReadPort
+#_(defprotocol ReadPort
   (take! [port fn1-handler] "derefable val if taken, nil if take was enqueued"))
 
-(defprotocol WritePort
+#_(defprotocol WritePort
   (put! [port val fn0-handler] "derefable nil if put, nil if put was enqueued. Must throw on nil val."))
 
-(defprotocol Channel
+#_(defprotocol Channel
   (close! [chan]))
 
 (defprotocol Handler
@@ -26,13 +26,13 @@
   (lock-id [h] "a unique id for lock acquisition order, 0 if no lock")
   (commit [h] "commit to fulfilling its end of the transfer, returns cb. Must be called within lock"))
 
-(defprotocol Buffer
+#_(defprotocol Buffer
   (full? [b])
   (remove! [b])
   (add! [b itm]))
 
-(defprotocol Executor
+#_(defprotocol Executor
   (exec [e runnable] "execute runnable asynchronously"))
 
 ;; Defines a buffer that will never block (return true to full?)
-(defprotocol UnblockingBuffer)
+#_(defprotocol UnblockingBuffer)

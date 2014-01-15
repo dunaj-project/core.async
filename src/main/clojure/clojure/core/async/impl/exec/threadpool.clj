@@ -7,7 +7,7 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns clojure.core.async.impl.exec.threadpool
-  (:require [clojure.core.async.impl.protocols :as impl]
+  (:require #_[clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.concurrent :as conc])
   (:import [java.util.concurrent Executors Executor]))
 
@@ -24,8 +24,6 @@
 (defn thread-pool-executor
   ([] (thread-pool-executor the-executor))
   ([^Executor executor-svc]
-     (reify impl/Executor
-       (impl/exec [this r]
-         (.execute executor-svc ^Runnable r)))))
+     executor-svc))
 
 

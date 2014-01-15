@@ -18,4 +18,5 @@
 (defn run
   "Runs Runnable r in a thread pool thread"
   [^Runnable r]
-  (impl/exec @executor r))
+  (let [e @executor]
+    (.execute ^java.util.concurrent.Executor e r)))

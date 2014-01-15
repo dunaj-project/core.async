@@ -15,6 +15,7 @@
   (:require [clojure.pprint :refer [pprint]]
             [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.dispatch :as dispatch]
+            [dunaj.async :as das]
             [clojure.set :refer (intersection)])
   (:import [java.util.concurrent.locks Lock]
            [java.util.concurrent.atomic AtomicReferenceArray]))
@@ -948,11 +949,11 @@
   (try
     (run-state-machine state)
     (catch Throwable ex
-      (impl/close! (aget-object state USER-START-IDX))
+      (das/-close! (aget-object state USER-START-IDX))
       (throw ex))))
 
 (defn take! [state blk c]
-  (if-let [cb (impl/take! c (fn-handler
+  (if-let [cb (das/-take! c (fn-handler
                                    (fn [x]
                                      (aset-all! state VALUE-IDX x STATE-IDX blk)
                                      (run-state-machine-wrapped state))))]
@@ -961,7 +962,7 @@
     nil))
 
 (defn put! [state blk c val]
-  (if-let [cb (impl/put! c val (fn-handler (fn []
+  (if-let [cb (das/-put! c val (fn-handler (fn []
                                              (aset-all! state VALUE-IDX nil STATE-IDX blk)
                                              (run-state-machine-wrapped state))))]
     (do (aset-all! state VALUE-IDX @cb STATE-IDX blk)
@@ -971,8 +972,8 @@
 (defn return-chan [state value]
   (let [c (aget-object state USER-START-IDX)]
            (when-not (nil? value)
-             (impl/put! c value (fn-handler (fn [] nil))))
-           (impl/close! c)
+             (das/-put! c value (fn-handler (fn [] nil))))
+           (das/-close! c)
            c))
 
 

@@ -10,7 +10,10 @@
   clojure.core.async.impl.channels
   (:require [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.dispatch :as dispatch]
-            [clojure.core.async.impl.mutex :as mutex])
+            [clojure.core.async.impl.mutex :as mutex]
+            [dunaj.coll :as dc]
+            [dunaj.mutable :as dm]
+            [dunaj.async :as das])
   (:import [java.util LinkedList Queue Iterator]
            [java.util.concurrent.locks Lock]))
 
@@ -28,7 +31,7 @@
 (defprotocol MMC
   (cleanup [_]))
 
-(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^Queue buf closed ^Lock mutex]
+(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^:unsynchronized-mutable buf closed ^Lock mutex]
   MMC
   (cleanup
     [_]
@@ -47,8 +50,8 @@
           (when (.hasNext iter)
             (recur (.next iter)))))))
 
-  impl/WritePort
-  (put!
+  das/IWritablePort
+  (-put!
     [this val handler]
     (when (nil? val)
       (throw (IllegalArgumentException. "Can't put nil on channel")))
@@ -79,13 +82,13 @@
             (.unlock mutex)
             (dispatch/run (fn [] (take-cb val)))
             (box nil))
-          (if (and buf (not (impl/full? buf)))
+          (if (and buf (not (dc/full? buf)))
             (do
               (.lock handler)
               (let [put-cb (and (impl/active? handler) (impl/commit handler))]
                 (.unlock handler)
                 (if put-cb
-                  (do (impl/add! buf val)
+                  (do (set! buf (dm/conj! buf val))
                       (.unlock mutex)
                       (box nil))
                   (do (.unlock mutex)
@@ -101,8 +104,8 @@
               (.unlock mutex)
               nil))))))
   
-  impl/ReadPort
-  (take!
+  das/IReadablePort
+  (-take!
     [this handler]
     (.lock mutex)
     (cleanup this)
@@ -115,19 +118,23 @@
       (if (and buf (pos? (count buf)))
         (do
           (if-let [take-cb (commit-handler)]
-            (let [val (impl/remove! buf)
+            (let [val (let [v (dc/peek buf)]
+                        (set! buf (dm/pop! buf))
+                        v)
                   iter (.iterator puts)
                   cb (when (.hasNext iter)
-                       (loop [[^Lock putter val] (.next iter)]
-                         (.lock putter)
-                         (let [cb (and (impl/active? putter) (impl/commit putter))]
-                           (.unlock putter)
-                           (.remove iter)
-                           (if cb
-                             (do (impl/add! buf val)
-                                 cb)
-                             (when (.hasNext iter)
-                               (recur (.next iter)))))))]
+                       (let [[cb v]
+                             (loop [[^Lock putter val] (.next iter)]
+                               (.lock putter)
+                               (let [cb (and (impl/active? putter) (impl/commit putter))]
+                                 (.unlock putter)
+                                 (.remove iter)
+                                 (if cb
+                                   cb
+                                   (when (.hasNext iter)
+                                     (recur (.next iter))))))]
+                         (set! buf (dm/conj! buf v))
+                         cb))]
               (.unlock mutex)
               (when cb
                 (dispatch/run cb))
@@ -173,8 +180,8 @@
                 (.unlock mutex)
                 nil)))))))
 
-  impl/Channel
-  (close!
+  das/ICloseablePort
+  (-close!
     [this]
     (.lock mutex)
     (cleanup this)

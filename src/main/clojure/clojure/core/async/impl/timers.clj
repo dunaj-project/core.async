@@ -8,8 +8,9 @@
 
 (ns ^{:skip-wiki true}
   clojure.core.async.impl.timers
-  (:require [clojure.core.async.impl.protocols :as impl]
-            [clojure.core.async.impl.channels :as channels])
+  (:require #_[clojure.core.async.impl.protocols :as impl]
+            [clojure.core.async.impl.channels :as channels]
+            [dunaj.async :as das])
   (:import [java.util.concurrent DelayQueue Delayed TimeUnit ConcurrentSkipListMap]))
 
 (set! *warn-on-reflection* true)
@@ -36,9 +37,9 @@
        (if (= timestamp ostamp)
          0
          1))))
-  impl/Channel
-  (close! [this]
-    (impl/close! channel)))
+  das/ICloseablePort
+  (-close! [this]
+    (das/-close! channel)))
 
 (defn timeout
   "returns a channel that will close after msecs"
@@ -59,7 +60,7 @@
     (loop []
       (let [^TimeoutQueueEntry tqe (.take q)]
         (.remove timeouts-map (.timestamp tqe) tqe)
-        (impl/close! tqe))
+        (das/close! tqe))
       (recur))))
 
 (defonce timeout-daemon

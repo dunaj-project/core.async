@@ -17,7 +17,11 @@
             [clojure.core.async.impl.ioc-macros :as ioc]
             [clojure.core.async.impl.mutex :as mutex]
             [clojure.core.async.impl.concurrent :as conc]
-            )
+            [clojure.bootstrap :refer [replace-var!]]
+            [dunaj.coll :as dc]
+            [dunaj.buffer :as db]
+            [dunaj.async :as das]
+            [dunaj.state :refer [replace-macro!]])
   (:import [clojure.core.async ThreadLocalRandom]
            [java.util.concurrent.locks Lock]
            [java.util.concurrent Executors Executor]
@@ -61,7 +65,7 @@
   "Returns true if a channel created with buff will never block. That is to say,
    puts into this buffer will never cause the buffer to be full. "
   [buff]
-  (extends? impl/UnblockingBuffer (class buff)))
+  (satisfies? dc/ISatiable buff))
 
 (defn chan
   "Creates a channel with an optional buffer. If buf-or-n is a number,
@@ -80,7 +84,7 @@
   if nothing is available."
   [port]
   (let [p (promise)
-        ret (impl/take! port (fn-handler (fn [v] (deliver p v))))]
+        ret (das/-take! port (fn-handler (fn [v] (deliver p v))))]
     (if ret
       @ret
       (deref p))))
@@ -98,7 +102,7 @@
    Returns nil."
   ([port fn1] (take! port fn1 true))
   ([port fn1 on-caller?]
-     (let [ret (impl/take! port (fn-handler fn1))]
+     (let [ret (das/-take! port (fn-handler fn1))]
        (when ret
          (let [val @ret]
            (if on-caller?
@@ -111,7 +115,7 @@
   buffer space is available. Returns nil."
   [port val]
   (let [p (promise)
-        ret (impl/put! port val (fn-handler (fn [] (deliver p nil))))]
+        ret (das/-put! port val (fn-handler (fn [] (deliver p nil))))]
     (if ret
       @ret
       (deref p))))
@@ -132,7 +136,7 @@
   ([port val] (put! port val nop))
   ([port val fn0] (put! port val fn0 true))
   ([port val fn0 on-caller?]
-     (let [ret (impl/put! port val (fn-handler fn0))]
+     (let [ret (das/-put! port val (fn-handler fn0))]
        (when (and ret (not= fn0 nop))
          (if on-caller?
            (fn0)
@@ -146,7 +150,7 @@
   pending takes, they will be dispatched with nil. Closing a closed
   channel is a no-op. Returns nil."
   [chan]
-  (impl/close! chan))
+  (das/-close! chan))
 
 (defonce ^:private ^java.util.concurrent.atomic.AtomicLong id-gen (java.util.concurrent.atomic.AtomicLong.))
 
@@ -207,8 +211,8 @@
                   wport (when (vector? port) (port 0))
                   vbox (if wport
                          (let [val (port 1)]
-                           (impl/put! wport val (alt-handler flag #(fret [nil wport]))))
-                         (impl/take! port (alt-handler flag #(fret [% port]))))]
+                           (das/-put! wport val (alt-handler flag #(fret [nil wport]))))
+                         (das/-take! port (alt-handler flag #(fret [% port]))))]
               (if vbox
                 (channels/box [@vbox (or wport port)])
                 (recur (inc i))))))]
@@ -403,13 +407,12 @@
   the source channel"
   [f ch]
   (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-
-   impl/ReadPort
-   (take! [_ fn1]
+   das/ICloseablePort
+   (-close! [_] (das/-close! ch))
+   das/IReadablePort
+   (-take! [_ fn1]
      (let [ret
-       (impl/take! ch
+       (das/-take! ch
          (reify
           Lock
           (lock [_] (.lock ^Lock fn1))
@@ -425,23 +428,21 @@
          (channels/box (f @ret))
          ret)))
 
-   impl/WritePort
-   (put! [_ val fn0] (impl/put! ch val fn0))))
+   das/IWritablePort
+   (-put! [_ val fn0] (das/-put! ch val fn0))))
 
 (defn map>
   "Takes a function and a target channel, and returns a channel which
   applies f to each value before supplying it to the target channel."
   [f ch]
   (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-
-   impl/ReadPort
-   (take! [_ fn1] (impl/take! ch fn1))
-
-   impl/WritePort
-   (put! [_ val fn0]
-    (impl/put! ch (f val) fn0))))
+   das/ICloseablePort
+   (-close! [_] (das/-close! ch))
+   das/IReadablePort
+   (-take! [_ fn1] (das/-take! ch fn1))
+   das/IWritablePort
+   (-put! [_ val fn0]
+     (das/-put! ch (f val) fn0))))
 
 (defmacro go-loop
   "Like (go (loop ...))"
@@ -454,16 +455,14 @@
   target channel."
   [p ch]
   (reify
-   impl/Channel
-   (close! [_] (impl/close! ch))
-
-   impl/ReadPort
-   (take! [_ fn1] (impl/take! ch fn1))
-
-   impl/WritePort
-   (put! [_ val fn0]
-    (if (p val)
-      (impl/put! ch val fn0)
+   das/ICloseablePort
+   (-close! [_] (das/-close! ch))
+   das/IReadablePort
+   (-take! [_ fn1] (das/-take! ch fn1))
+   das/IWritablePort
+   (-put! [_ val fn0]
+     (if (p val)
+      (das/-put! ch val fn0)
       (channels/box nil)))))
 
 (defn remove>
@@ -1040,3 +1039,65 @@
                        (>! out (vec lst)))
                      (close! out))))))
        out)))
+
+;;; Populate dunaj.async
+
+(defn pipe*
+  "Takes elements from the from channel and supplies them to the to
+  channel. By default, the to channel will be closed when the
+  from channel closes, but can be determined by the keep-open?
+  parameter."
+  ([from to] (pipe* from to false))
+  ([from to keep-open?]
+     (go-loop []
+       (let [v (<! from)]
+         (if (nil? v)
+           (when-not keep-open? (close! to))
+           (do (>! to v)
+               (recur)))))))
+
+(defn onto-chan*
+  "Puts the contents of coll into the supplied channel.
+
+  By default the channel will be closed after the items are copied,
+  but can be determined by the keep-open? parameter.
+
+  Returns a channel which will close after the items are copied."
+  ([ch coll] (onto-chan* ch coll true))
+  ([ch coll keep-open?]
+     ;; TODO: support IIterable when satisfied
+     (go-loop [vs (seq coll)]
+       (if vs
+         (do (>! ch (first vs))
+             (recur (next vs)))
+         (when-not keep-open?
+           (close! ch))))))
+
+(replace-macro! dunaj.async/go (var go))
+(replace-var! dunaj.async/thread-call)
+(replace-var! dunaj.async/fn-handler)
+(replace-var! dunaj.async/<!!)
+(replace-var! dunaj.async/>!!)
+(replace-var! dunaj.async/chan)
+(replace-var! dunaj.async/timeout)
+(replace-var! dunaj.async/alts!!)
+(replace-var! dunaj.async/alts!)
+(replace-macro! dunaj.async/alt!! (var alt!!))
+(replace-macro! dunaj.async/alt! (var alt!))
+(replace-var! dunaj.async/map)
+(replace-var! dunaj.async/map<)
+(replace-var! dunaj.async/map>)
+(replace-var! dunaj.async/filter>)
+(replace-var! dunaj.async/filter<)
+(replace-var! dunaj.async/mapcat<)
+(replace-var! dunaj.async/mapcat>)
+(replace-var! dunaj.async/split)
+(replace-var! dunaj.async/reduce)
+(replace-var! dunaj.async/to-chan)
+(replace-var! dunaj.async/merge)
+(replace-var! dunaj.async/take)
+(replace-var! dunaj.async/unique)
+(replace-var! dunaj.async/partition)
+(replace-var! dunaj.async/partition-by)
+(replace-var! dunaj.async/pipe pipe*)
+(replace-var! dunaj.async/onto-chan onto-chan*)

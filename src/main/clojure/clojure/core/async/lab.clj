@@ -26,14 +26,15 @@
             [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.mutex :as mutex]
             [clojure.core.async.impl.dispatch :as dispatch]
-            [clojure.core.async.impl.channels :as channels])
+            [clojure.core.async.impl.channels :as channels]
+            [dunaj.async :as das])
   (:import [java.util HashSet Set Collection]
            [java.util.concurrent.locks Lock]))
 
 (deftype MultiplexingReadPort
     [^Lock mutex ^Set read-ports]
-  impl/ReadPort
-  (take! [this handler]
+  das/IReadablePort
+  (-take! [this handler]
     (if (empty? read-ports)
       (channels/box nil)
       (do
@@ -49,7 +50,7 @@
                        (do (.lock mutex)
                            (.remove read-ports alt-port)
                            (.unlock mutex)
-                           (impl/take! this handler))
+                           (das/-take! this handler))
                        (when-let [take-cb (commit-handler)]
                          (dispatch/run #(take-cb val)))))
               current-ports (seq read-ports)]
@@ -82,7 +83,7 @@
 (defn- broadcast-write
   [port-set val handler]
   (if (= (count port-set) 1)
-    (impl/put! (first port-set) val handler)
+    (das/put! (first port-set) val handler)
     (let [clauses (map (fn [port] [port val]) port-set)
           recur-step (fn [[_ port]] (broadcast-write (disj port-set port) val handler))]
       (when-let [alt-res (async/do-alts recur-step clauses {})]
@@ -92,8 +93,8 @@
 
 (deftype BroadcastingWritePort
     [write-ports]
-  impl/WritePort
-  (put! [port val handler]
+  das/IWritablePort
+  (-put! [port val handler]
     (broadcast-write write-ports val handler)))
 
 (defn broadcast
