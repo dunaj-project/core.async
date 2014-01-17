@@ -36,3 +36,21 @@
 
 ;; Defines a buffer that will never block (return true to full?)
 #_(defprotocol UnblockingBuffer)
+
+(defprotocol Mult
+  (tap* [m ch close?])
+  (untap* [m ch])
+  (untap-all* [m]))
+
+(defprotocol Mix
+  (admix* [m ch])
+  (unmix* [m ch])
+  (unmix-all* [m])
+  (toggle* [m state-map])
+  (solo-mode* [m mode]))
+
+(defprotocol Pub
+  (sub* [p v ch close?])
+  (unsub* [p v ch])
+  (unsub-all* [p] [p v]))
+

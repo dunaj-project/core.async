@@ -13,7 +13,7 @@
             [clojure.core.async.impl.mutex :as mutex]
             [dunaj.coll :as dc]
             [dunaj.mutable :as dm]
-            [dunaj.async :as das])
+            [dunaj.port :as dp])
   (:import [java.util LinkedList Queue Iterator]
            [java.util.concurrent.locks Lock]))
 
@@ -50,7 +50,7 @@
           (when (.hasNext iter)
             (recur (.next iter)))))))
 
-  das/IWritablePort
+  dp/IWritablePort
   (-put!
     [this val handler]
     (when (nil? val)
@@ -104,7 +104,7 @@
               (.unlock mutex)
               nil))))))
   
-  das/IReadablePort
+  dp/IReadablePort
   (-take!
     [this handler]
     (.lock mutex)
@@ -180,7 +180,7 @@
                 (.unlock mutex)
                 nil)))))))
 
-  das/ICloseablePort
+  dp/ICloseablePort
   (-close!
     [this]
     (.lock mutex)

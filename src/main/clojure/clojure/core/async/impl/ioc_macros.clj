@@ -15,7 +15,7 @@
   (:require [clojure.pprint :refer [pprint]]
             [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.dispatch :as dispatch]
-            [dunaj.async :as das]
+            [dunaj.port :as dp]
             [clojure.set :refer (intersection)])
   (:import [java.util.concurrent.locks Lock]
            [java.util.concurrent.atomic AtomicReferenceArray]))
@@ -949,11 +949,11 @@
   (try
     (run-state-machine state)
     (catch Throwable ex
-      (das/-close! (aget-object state USER-START-IDX))
+      (dp/-close! (aget-object state USER-START-IDX))
       (throw ex))))
 
 (defn take! [state blk c]
-  (if-let [cb (das/-take! c (fn-handler
+  (if-let [cb (dp/-take! c (fn-handler
                                    (fn [x]
                                      (aset-all! state VALUE-IDX x STATE-IDX blk)
                                      (run-state-machine-wrapped state))))]
@@ -962,7 +962,7 @@
     nil))
 
 (defn put! [state blk c val]
-  (if-let [cb (das/-put! c val (fn-handler (fn []
+  (if-let [cb (dp/-put! c val (fn-handler (fn []
                                              (aset-all! state VALUE-IDX nil STATE-IDX blk)
                                              (run-state-machine-wrapped state))))]
     (do (aset-all! state VALUE-IDX @cb STATE-IDX blk)
@@ -972,21 +972,21 @@
 (defn return-chan [state value]
   (let [c (aget-object state USER-START-IDX)]
            (when-not (nil? value)
-             (das/-put! c value (fn-handler (fn [] nil))))
-           (das/-close! c)
+             (dp/-put! c value (fn-handler (fn [] nil))))
+           (dp/-close! c)
            c))
 
 
 (def async-custom-terminators
   {'<! `take!
    'clojure.core.async/<! `take!
-   'dunaj.async/<! `take!
+   'dunaj.port/<! `take!
    '>! `put!
    'clojure.core.async/>! `put!
-   'dunaj.async/>! `put!
+   'dunaj.port/>! `put!
    'alts! 'clojure.core.async/ioc-alts!
    'clojure.core.async/alts! 'clojure.core.async/ioc-alts!
-   'dunaj.async/alts! 'clojure.core.async/ioc-alts!
+   'dunaj.port/alts! 'clojure.core.async/ioc-alts!
    :Return `return-chan})
 
 

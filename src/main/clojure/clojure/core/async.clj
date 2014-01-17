@@ -9,7 +9,9 @@
 (ns clojure.core.async
   (:refer-clojure :exclude [reduce into merge map take partition
                             partition-by] :as core)
-  (:require [clojure.core.async.impl.protocols :as impl]
+  (:require [clojure.core.async.impl.protocols :as impl :refer [Mult tap* untap* untap-all*
+                                                                Mix admix* unmix* unmix-all* toggle* solo-mode*
+                                                                Pub sub* unsub* unsub-all*]]
             [clojure.core.async.impl.channels :as channels]
             [clojure.core.async.impl.buffers :as buffers]
             [clojure.core.async.impl.timers :as timers]
@@ -20,7 +22,8 @@
             [clojure.bootstrap :refer [replace-var!]]
             [dunaj.coll :as dc]
             [dunaj.buffer :as db]
-            [dunaj.async :as das]
+            [dunaj.port :as dp]
+            [dunaj.config :as dcf]
             [dunaj.state :refer [replace-macro!]])
   (:import [clojure.core.async ThreadLocalRandom]
            [java.util.concurrent.locks Lock]
@@ -84,7 +87,7 @@
   if nothing is available."
   [port]
   (let [p (promise)
-        ret (das/-take! port (fn-handler (fn [v] (deliver p v))))]
+        ret (dp/-take! port (fn-handler (fn [v] (deliver p v))))]
     (if ret
       @ret
       (deref p))))
@@ -102,7 +105,7 @@
    Returns nil."
   ([port fn1] (take! port fn1 true))
   ([port fn1 on-caller?]
-     (let [ret (das/-take! port (fn-handler fn1))]
+     (let [ret (dp/-take! port (fn-handler fn1))]
        (when ret
          (let [val @ret]
            (if on-caller?
@@ -115,7 +118,7 @@
   buffer space is available. Returns nil."
   [port val]
   (let [p (promise)
-        ret (das/-put! port val (fn-handler (fn [] (deliver p nil))))]
+        ret (dp/-put! port val (fn-handler (fn [] (deliver p nil))))]
     (if ret
       @ret
       (deref p))))
@@ -136,7 +139,7 @@
   ([port val] (put! port val nop))
   ([port val fn0] (put! port val fn0 true))
   ([port val fn0 on-caller?]
-     (let [ret (das/-put! port val (fn-handler fn0))]
+     (let [ret (dp/-put! port val (fn-handler fn0))]
        (when (and ret (not= fn0 nop))
          (if on-caller?
            (fn0)
@@ -150,7 +153,7 @@
   pending takes, they will be dispatched with nil. Closing a closed
   channel is a no-op. Returns nil."
   [chan]
-  (das/-close! chan))
+  (dp/-close! chan))
 
 (defonce ^:private ^java.util.concurrent.atomic.AtomicLong id-gen (java.util.concurrent.atomic.AtomicLong.))
 
@@ -211,8 +214,8 @@
                   wport (when (vector? port) (port 0))
                   vbox (if wport
                          (let [val (port 1)]
-                           (das/-put! wport val (alt-handler flag #(fret [nil wport]))))
-                         (das/-take! port (alt-handler flag #(fret [% port]))))]
+                           (dp/-put! wport val (alt-handler flag #(fret [nil wport]))))
+                         (dp/-take! port (alt-handler flag #(fret [% port]))))]
               (if vbox
                 (channels/box [@vbox (or wport port)])
                 (recur (inc i))))))]
@@ -407,12 +410,12 @@
   the source channel"
   [f ch]
   (reify
-   das/ICloseablePort
-   (-close! [_] (das/-close! ch))
-   das/IReadablePort
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
+   dp/IReadablePort
    (-take! [_ fn1]
      (let [ret
-       (das/-take! ch
+       (dp/-take! ch
          (reify
           Lock
           (lock [_] (.lock ^Lock fn1))
@@ -428,21 +431,21 @@
          (channels/box (f @ret))
          ret)))
 
-   das/IWritablePort
-   (-put! [_ val fn0] (das/-put! ch val fn0))))
+   dp/IWritablePort
+   (-put! [_ val fn0] (dp/-put! ch val fn0))))
 
 (defn map>
   "Takes a function and a target channel, and returns a channel which
   applies f to each value before supplying it to the target channel."
   [f ch]
   (reify
-   das/ICloseablePort
-   (-close! [_] (das/-close! ch))
-   das/IReadablePort
-   (-take! [_ fn1] (das/-take! ch fn1))
-   das/IWritablePort
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
+   dp/IReadablePort
+   (-take! [_ fn1] (dp/-take! ch fn1))
+   dp/IWritablePort
    (-put! [_ val fn0]
-     (das/-put! ch (f val) fn0))))
+     (dp/-put! ch (f val) fn0))))
 
 (defmacro go-loop
   "Like (go (loop ...))"
@@ -455,14 +458,14 @@
   target channel."
   [p ch]
   (reify
-   das/ICloseablePort
-   (-close! [_] (das/-close! ch))
-   das/IReadablePort
-   (-take! [_ fn1] (das/-take! ch fn1))
-   das/IWritablePort
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
+   dp/IReadablePort
+   (-take! [_ fn1] (dp/-take! ch fn1))
+   dp/IWritablePort
    (-put! [_ val fn0]
      (if (p val)
-      (das/-put! ch val fn0)
+      (dp/-put! ch val fn0)
       (channels/box nil)))))
 
 (defn remove>
@@ -580,13 +583,13 @@
   the single result of applying f to init and the first item from the
   channel, then applying f to that result and the 2nd item, etc. If
   the channel closes without yielding items, returns init and f is not
-  called. ch must close before reduce produces a result."
+  called. ch must close before reduce produces a result or channel must produce reduced item."
   [f init ch]
   (go-loop [ret init]
     (let [v (<! ch)]
-      (if (nil? v)
-        ret
-        (recur (f ret v))))))
+      (cond (nil? v) ret
+            (reduced? v) @ret
+            :else (recur (f ret v))))))
 
 (defn- bounded-count
   "Returns the smaller of n or the count of coll, without examining
@@ -625,11 +628,6 @@
 
 (defprotocol Mux
   (muxch* [_]))
-
-(defprotocol Mult
-  (tap* [m ch close?])
-  (untap* [m ch])
-  (untap-all* [m]))
 
 (defn mult
   "Creates and returns a mult(iple) of the supplied channel. Channels
@@ -684,6 +682,14 @@
   ([mult ch] (tap mult ch true))
   ([mult ch close?] (tap* mult ch close?) ch))
 
+(defn tap2
+  "Copies the mult source onto the supplied channel.
+
+  By default the channel will be closed when the source closes,
+  but can be determined by the keep-open? parameter."
+  ([mult ch] (tap2 mult ch false))
+  ([mult ch keep-open?] (tap* mult ch (not keep-open?)) ch))
+
 (defn untap
   "Disconnects a target channel from a mult"
   [mult ch]
@@ -692,13 +698,6 @@
 (defn untap-all
   "Disconnects all target channels from a mult"
   [mult] (untap-all* mult))
-
-(defprotocol Mix
-  (admix* [m ch])
-  (unmix* [m ch])
-  (unmix-all* [m])
-  (toggle* [m state-map])
-  (solo-mode* [m mode]))
 
 (defn mix
   "Creates and returns a mix of one or more input channels which will
@@ -748,6 +747,18 @@
         m (reify
            Mux
            (muxch* [_] out)
+           dcf/IConfigured
+           (-config [o] {:solo-mode @solo-mode})
+           dcf/ITunable
+           (-alter-config! [o f args]
+             (let [conf (apply f (dcf/-config o) args)]
+               (dcf/-reset-config! o conf)))
+           (-reset-config! [o conf]
+             (when-not (empty? (dissoc conf :solo-mode))
+               (throw (IllegalArgumentException. "Config must contain one key, :solo-mode.")))
+             (if-let [sm (:solo-mode conf)]
+               (solo-mode* o sm)
+               (throw (IllegalArgumentException. "Config must contain :solo-mode."))))
            Mix
            (admix* [_ ch] (swap! cs assoc ch {}) (changed))
            (unmix* [_ ch] (swap! cs dissoc ch) (changed))
@@ -772,17 +783,17 @@
 (defn admix
   "Adds ch as an input to the mix"
   [mix ch]
-  (admix* mix ch))
+  (admix* mix ch) nil)
 
 (defn unmix
   "Removes ch as an input to the mix"
   [mix ch]
-  (unmix* mix ch))
+  (unmix* mix ch) nil)
 
 (defn unmix-all
   "removes all inputs from the mix"
   [mix]
-  (unmix-all* mix))
+  (unmix-all* mix) nil)
 
 (defn toggle
   "Atomically sets the state(s) of one or more channels in a mix. The
@@ -794,17 +805,12 @@
   Note that channels can be added to a mix via toggle, which can be
   used to add channels in a particular (e.g. paused) state."
   [mix state-map]
-  (toggle* mix state-map))
+  (toggle* mix state-map) nil)
 
 (defn solo-mode
   "Sets the solo mode of the mix. mode must be one of :mute or :pause"
   [mix mode]
   (solo-mode* mix mode))
-
-(defprotocol Pub
-  (sub* [p v ch close?])
-  (unsub* [p v ch])
-  (unsub-all* [p] [p v]))
 
 (defn pub
   "Creates and returns a pub(lication) of the supplied channel,
@@ -870,6 +876,14 @@
   but can be determined by the close? parameter."
   ([p topic ch] (sub p topic ch true))
   ([p topic ch close?] (sub* p topic ch close?)))
+
+(defn sub2
+  "Subscribes a channel to a topic of a pub.
+
+  By default the channel will be closed when the source closes,
+  but can be determined by the keep-open? parameter."
+  ([p topic ch] (sub p topic ch false))
+  ([p topic ch keep-open?] (sub* p topic ch (not keep-open?))))
 
 (defn unsub
   "Unsubscribes a channel from a topic of a pub"
@@ -1040,7 +1054,7 @@
                      (close! out))))))
        out)))
 
-;;; Populate dunaj.async
+;;; Populate dunaj.port
 
 (defn pipe*
   "Takes elements from the from channel and supplies them to the to
@@ -1073,31 +1087,44 @@
          (when-not keep-open?
            (close! ch))))))
 
-(replace-macro! dunaj.async/go (var go))
-(replace-var! dunaj.async/thread-call)
-(replace-var! dunaj.async/fn-handler)
-(replace-var! dunaj.async/<!!)
-(replace-var! dunaj.async/>!!)
-(replace-var! dunaj.async/chan)
-(replace-var! dunaj.async/timeout)
-(replace-var! dunaj.async/alts!!)
-(replace-var! dunaj.async/alts!)
-(replace-macro! dunaj.async/alt!! (var alt!!))
-(replace-macro! dunaj.async/alt! (var alt!))
-(replace-var! dunaj.async/map)
-(replace-var! dunaj.async/map<)
-(replace-var! dunaj.async/map>)
-(replace-var! dunaj.async/filter>)
-(replace-var! dunaj.async/filter<)
-(replace-var! dunaj.async/mapcat<)
-(replace-var! dunaj.async/mapcat>)
-(replace-var! dunaj.async/split)
-(replace-var! dunaj.async/reduce)
-(replace-var! dunaj.async/to-chan)
-(replace-var! dunaj.async/merge)
-(replace-var! dunaj.async/take)
-(replace-var! dunaj.async/unique)
-(replace-var! dunaj.async/partition)
-(replace-var! dunaj.async/partition-by)
-(replace-var! dunaj.async/pipe pipe*)
-(replace-var! dunaj.async/onto-chan onto-chan*)
+(replace-macro! dunaj.port/go (var go))
+(replace-var! dunaj.port/thread-call)
+(replace-var! dunaj.port/fn-handler)
+(replace-var! dunaj.port/<!!)
+(replace-var! dunaj.port/>!!)
+(replace-var! dunaj.port/chan)
+(replace-var! dunaj.port/timeout)
+(replace-var! dunaj.port/alts!!)
+(replace-var! dunaj.port/alts!)
+(replace-macro! dunaj.port/alt!! (var alt!!))
+(replace-macro! dunaj.port/alt! (var alt!))
+(replace-var! dunaj.port/map! map)
+(replace-var! dunaj.port/map<)
+(replace-var! dunaj.port/map>)
+(replace-var! dunaj.port/filter>)
+(replace-var! dunaj.port/filter<! filter<)
+(replace-var! dunaj.port/mapcat<! mapcat<)
+(replace-var! dunaj.port/mapcat>)
+(replace-var! dunaj.port/split! split)
+(replace-var! dunaj.port/reduce! reduce)
+(replace-var! dunaj.port/to-chan)
+(replace-var! dunaj.port/merge! merge)
+(replace-var! dunaj.port/take-n! take)
+(replace-var! dunaj.port/unique! unique)
+(replace-var! dunaj.port/partition! partition)
+(replace-var! dunaj.port/partition-by! partition-by)
+(replace-var! dunaj.port/pipe! pipe*)
+(replace-var! dunaj.port/onto-chan! onto-chan*)
+(replace-var! dunaj.port/mult! mult)
+(replace-var! dunaj.port/tap! tap2)
+(replace-var! dunaj.port/untap! untap)
+(replace-var! dunaj.port/untap-all! untap-all)
+(replace-var! dunaj.port/mix mix)
+(replace-var! dunaj.port/admix! admix)
+(replace-var! dunaj.port/unmix! unmix)
+(replace-var! dunaj.port/unmix-all! unmix-all)
+(replace-var! dunaj.port/toggle! toggle)
+(replace-var! dunaj.port/pub! pub)
+(replace-var! dunaj.port/sub! sub2)
+(replace-var! dunaj.port/unsub! unsub)
+(replace-var! dunaj.port/unsub-all! unsub-all)
