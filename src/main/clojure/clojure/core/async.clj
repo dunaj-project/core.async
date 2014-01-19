@@ -24,6 +24,7 @@
             [dunaj.buffer :as db]
             [dunaj.port :as dp]
             [dunaj.config :as dcf]
+            [dunaj.time :as dt]
             [dunaj.state :refer [replace-macro!]])
   (:import [clojure.core.async ThreadLocalRandom]
            [java.util.concurrent.locks Lock]
@@ -77,10 +78,9 @@
   ([buf-or-n] (channels/chan (if (number? buf-or-n) (buffer buf-or-n) buf-or-n))))
 
 (defn timeout
-  "Returns a channel that will close after msecs"
-  [msecs]
-  {:pre [(integer? msecs)]}
-  (timers/timeout msecs))
+  "Returns a channel that will close after specified duration."
+  [duration]
+  (timers/timeout (dt/milliseconds msecs)))
 
 (defn <!!
   "takes a val from port. Will return nil if closed. Will block
