@@ -80,7 +80,7 @@
 (defn timeout
   "Returns a channel that will close after specified duration."
   [duration]
-  (timers/timeout (dt/milliseconds msecs)))
+  (timers/timeout (dt/milliseconds duration)))
 
 (defn <!!
   "takes a val from port. Will return nil if closed. Will block
