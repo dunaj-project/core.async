@@ -13,6 +13,7 @@
             [clojure.core.async.impl.mutex :as mutex]
             [dunaj.coll :as dc]
             [dunaj.mutable :as dm]
+            [dunaj.feature :as df]
             [dunaj.port :as dp])
   (:import [java.util LinkedList Queue Iterator]
            [java.util.concurrent.locks Lock]))
