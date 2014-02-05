@@ -25,5 +25,3 @@
   ([] (thread-pool-executor the-executor))
   ([^Executor executor-svc]
      executor-svc))
-
-

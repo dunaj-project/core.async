@@ -25,6 +25,7 @@
             [dunaj.port :as dp]
             [dunaj.config :as dcf]
             [dunaj.time :as dt]
+            [dunaj.feature :as df]
             [dunaj.state :refer [replace-macro!]])
   (:import [clojure.core.async ThreadLocalRandom]
            [java.util.concurrent.locks Lock]
@@ -115,36 +116,43 @@
 
 (defn >!!
   "puts a val into port. nil values are not allowed. Will block if no
-  buffer space is available. Returns nil."
+  buffer space is available. Returns true unless port is already closed."
   [port val]
   (let [p (promise)
-        ret (dp/-put! port val (fn-handler (fn [] (deliver p nil))))]
+        ret (impl/put! port val (fn-handler (fn [open?] (deliver p open?))))]
     (if ret
       @ret
       (deref p))))
 
 (defn >!
   "puts a val into port. nil values are not allowed. Must be called
-  inside a (go ...) block. Will park if no buffer space is available."
+  inside a (go ...) block. Will park if no buffer space is available.
+  Returns true unless port is already closed."
   [port val]
   (assert nil ">! used not in (go ...) block"))
 
-(defn- nop [])
+(defn- nop [_])
+(def ^:private fhnop (fn-handler nop))
 
 (defn put!
-  "Asynchronously puts a val into port, calling fn0 (if supplied) when
-   complete. nil values are not allowed. Will throw if closed. If
-   on-caller? (default true) is true, and the put is immediately
-   accepted, will call fn0 on calling thread.  Returns nil."
-  ([port val] (put! port val nop))
-  ([port val fn0] (put! port val fn0 true))
-  ([port val fn0 on-caller?]
-     (let [ret (dp/-put! port val (fn-handler fn0))]
-       (when (and ret (not= fn0 nop))
+  "Asynchronously puts a val into port, calling fn1 (if supplied) when
+   complete, passing true iff port is already closed. nil values are
+   not allowed. If on-caller? (default true) is true, and the put is
+   immediately accepted, will call fn1 on calling thread.  Returns
+   true unless port is already closed."
+  ([port val]
+     (if-let [ret (impl/put! port val fhnop)]
+       @ret
+       true))
+  ([port val fn1] (put! port val fn1 true))
+  ([port val fn1 on-caller?]
+     (if-let [retb (impl/put! port val (fn-handler fn1))]
+       (let [ret @retb]
          (if on-caller?
-           (fn0)
-           (dispatch/run fn0)))
-       nil)))
+           (fn1 ret)
+           (dispatch/run #(fn1 ret)))
+         ret)
+       true)))
 
 (defn close!
   "Closes a channel. The channel will no longer accept any puts (they
@@ -214,7 +222,7 @@
                   wport (when (vector? port) (port 0))
                   vbox (if wport
                          (let [val (port 1)]
-                           (dp/-put! wport val (alt-handler flag #(fret [nil wport]))))
+                           (dp/-put! wport val (alt-handler flag #(fret [% wport]))))
                          (dp/-take! port (alt-handler flag #(fret [% port]))))]
               (if vbox
                 (channels/box [@vbox (or wport port)])
@@ -241,8 +249,8 @@
 
 (defn alts!
   "Completes at most one of several channel operations. Must be called
-  inside a (go ...) block. ports is a vector of channel endpoints, which
-  can be either a channel to take from or a vector of
+  inside a (go ...) block. ports is a vector of channel endpoints,
+  which can be either a channel to take from or a vector of
   [channel-to-put-to val-to-put], in any combination. Takes will be
   made as if by <!, and puts will be made as if by >!. Unless
   the :priority option is true, if more than one port operation is
@@ -250,7 +258,8 @@
   ready and a :default value is supplied, [default-val :default] will
   be returned, otherwise alts! will park until the first operation to
   become ready completes. Returns [val port] of the completed
-  operation, where val is the value taken for takes, and nil for puts.
+  operation, where val is the value taken for takes, and a
+  boolean (true unless already closed, as per put!) for puts.
 
   opts are passed as :key val ... Supported options:
 
@@ -389,6 +398,7 @@
                   (clojure.lang.Var/resetThreadBindingFrame binds)
                   (let [ret (try (f)
                                  (catch Throwable t
+                                   (println t)
                                    nil))]
                     (when-not (nil? ret)
                       (>!! c ret))
@@ -410,6 +420,8 @@
   the source channel"
   [f ch]
   (reify
+   df/IOpenAware
+   (-open? [_] (df/-open? ch))
    dp/ICloseablePort
    (-close! [_] (dp/-close! ch))
    dp/IReadablePort
@@ -432,20 +444,22 @@
          ret)))
 
    dp/IWritablePort
-   (-put! [_ val fn0] (dp/-put! ch val fn0))))
+   (-put! [_ val fn1] (dp/-put! ch val fn1))))
 
 (defn map>
   "Takes a function and a target channel, and returns a channel which
   applies f to each value before supplying it to the target channel."
   [f ch]
   (reify
+   df/IOpenAware
+   (-open? [_] (df/-open? ch)) 
    dp/ICloseablePort
    (-close! [_] (dp/-close! ch))
    dp/IReadablePort
    (-take! [_ fn1] (dp/-take! ch fn1))
    dp/IWritablePort
-   (-put! [_ val fn0]
-     (dp/-put! ch (f val) fn0))))
+   (-put! [_ val fn1]
+     (dp/-put! ch (f val) fn1))))
 
 (defmacro go-loop
   "Like (go (loop ...))"
@@ -458,15 +472,17 @@
   target channel."
   [p ch]
   (reify
+   df/IOpenAware
+   (-open? [_] (df/-open? ch)) 
    dp/ICloseablePort
    (-close! [_] (dp/-close! ch))
    dp/IReadablePort
    (-take! [_ fn1] (dp/-take! ch fn1))
    dp/IWritablePort
-   (-put! [_ val fn0]
+   (-put! [_ val fn1]
      (if (p val)
-      (dp/-put! ch val fn0)
-      (channels/box nil)))))
+      (dp/-put! ch val fn1)
+      (channels/box (df/-open? ch)))))
 
 (defn remove>
   "Takes a predicate and a target channel, and returns a channel which
@@ -507,10 +523,10 @@
     (let [val (<! in)]
       (if (nil? val)
         (close! out)
-        (let [vals (f val)]
-          (doseq [v vals]
-            (>! out v))
-          (recur))))))
+        (do (doseq [v (f val)]
+              (>! out v))
+            (when-not (impl/closed? out)
+              (recur)))))))
 
 (defn mapcat<
   "Takes a function and a source channel, and returns a channel which
@@ -544,17 +560,17 @@
 
 (defn pipe
   "Takes elements from the from channel and supplies them to the to
-  channel. By default, the to channel will be closed when the
-  from channel closes, but can be determined by the close?
-  parameter."
+  channel. By default, the to channel will be closed when the from
+  channel closes, but can be determined by the close?  parameter. Will
+  stop consuming the from channel if the to channel closes"
   ([from to] (pipe from to true))
   ([from to close?]
      (go-loop []
       (let [v (<! from)]
         (if (nil? v)
           (when close? (close! to))
-          (do (>! to v)
-              (recur)))))
+          (when (>! to v)
+            (recur)))))
      to))
 
 (defn split
@@ -574,8 +590,8 @@
          (let [v (<! ch)]
            (if (nil? v)
              (do (close! tc) (close! fc))
-             (do (>! (if (p v) tc fc) v)
-                 (recur)))))
+             (when (>! (if (p v) tc fc) v)
+               (recur)))))
        [tc fc])))
 
 (defn reduce
@@ -612,11 +628,10 @@
   ([ch coll] (onto-chan ch coll true))
   ([ch coll close?]
      (go-loop [vs (seq coll)]
-       (if vs
-         (do (>! ch (first vs))
-             (recur (next vs)))
-         (when close?
-           (close! ch))))))
+              (if (and vs (>! ch (first vs)))
+                (recur (next vs))
+                (when close?
+                  (close! ch))))))
 
 (defn to-chan
   "Creates and returns a channel which contains the contents of coll,
@@ -640,7 +655,7 @@
 
   Items received when there are no taps get dropped.
 
-  If a tap put throws an exception, it will be removed from the mult."
+  If a tap puts to a closed channel, it will be removed from the mult."
   [ch]
   (let [cs (atom {}) ;;ch->close?
         m (reify
@@ -653,8 +668,8 @@
            (untap-all* [_] (reset! cs {}) nil))
         dchan (chan 1)
         dctr (atom nil)
-        done #(when (zero? (swap! dctr dec))
-                (put! dchan true))]
+        done (fn [_] (when (zero? (swap! dctr dec))
+                      (put! dchan true)))]
     (go-loop []
      (let [val (<! ch)]
        (if (nil? val)
@@ -663,11 +678,9 @@
          (let [chs (keys @cs)]
            (reset! dctr (count chs))
            (doseq [c chs]
-               (try
-                 (put! c val done)
-                 (catch Exception e
-                   (swap! dctr dec)
-                   (untap* m c))))
+             (when-not (put! c val done)
+               (swap! dctr dec)
+               (untap* m c)))
            ;;wait for all
            (when (seq chs)
              (<! dchan))
@@ -774,9 +787,10 @@
           (do (when (nil? v)
                 (swap! cs dissoc c))
               (recur (calc-state)))
-          (do (when (or (solos c)
-                        (and (empty? solos) (not (mutes c))))
-                (>! out v))
+          (if (or (solos c)
+                  (and (empty? solos) (not (mutes c))))
+            (when (>! out v)
+              (recur state))
             (recur state)))))
     m))
 
@@ -862,10 +876,8 @@
              (let [topic (topic-fn val)
                    m (get @mults topic)]
                (when m
-                 (try
-                   (>! (muxch* m) val)
-                   (catch Exception e
-                     (swap! mults dissoc topic))))
+                 (when-not (>! (muxch* m) val)
+                   (swap! mults dissoc topic)))
                (recur)))))
        p)))
 
