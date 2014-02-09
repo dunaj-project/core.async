@@ -51,7 +51,7 @@
           (when (.hasNext iter)
             (recur (.next iter)))))))
 
-  dp/IWritablePort
+  dp/ITargetPort
   (-put!
     [this val handler]
     (when (nil? val)
@@ -105,7 +105,7 @@
               (.unlock mutex)
               nil))))))
   
-  dp/IReadablePort
+  dp/ISourcePort
   (-take!
     [this handler]
     (.lock mutex)
@@ -183,7 +183,7 @@
 
   df/IOpenAware
   (-open? [_] (not @closed))
-  dp/ICloseablePort
+  df/ICloseable
   (-close!
     [this]
     (.lock mutex)

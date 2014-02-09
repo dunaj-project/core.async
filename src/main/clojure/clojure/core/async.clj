@@ -23,7 +23,6 @@
             [dunaj.coll :as dc]
             [dunaj.buffer :as db]
             [dunaj.port :as dp]
-            [dunaj.config :as dcf]
             [dunaj.time :as dt]
             [dunaj.feature :as df]
             [dunaj.state :refer [replace-macro!]])
@@ -119,7 +118,7 @@
   buffer space is available. Returns true unless port is already closed."
   [port val]
   (let [p (promise)
-        ret (impl/put! port val (fn-handler (fn [open?] (deliver p open?))))]
+        ret (dp/-put! port val (fn-handler (fn [open?] (deliver p open?))))]
     (if ret
       @ret
       (deref p))))
@@ -141,12 +140,12 @@
    immediately accepted, will call fn1 on calling thread.  Returns
    true unless port is already closed."
   ([port val]
-     (if-let [ret (impl/put! port val fhnop)]
+     (if-let [ret (dp/-put! port val fhnop)]
        @ret
        true))
   ([port val fn1] (put! port val fn1 true))
   ([port val fn1 on-caller?]
-     (if-let [retb (impl/put! port val (fn-handler fn1))]
+     (if-let [retb (dp/-put! port val (fn-handler fn1))]
        (let [ret @retb]
          (if on-caller?
            (fn1 ret)
@@ -161,7 +160,7 @@
   pending takes, they will be dispatched with nil. Closing a closed
   channel is a no-op. Returns nil."
   [chan]
-  (dp/-close! chan))
+  (df/-close! chan))
 
 (defonce ^:private ^java.util.concurrent.atomic.AtomicLong id-gen (java.util.concurrent.atomic.AtomicLong.))
 
@@ -422,9 +421,9 @@
   (reify
    df/IOpenAware
    (-open? [_] (df/-open? ch))
-   dp/ICloseablePort
-   (-close! [_] (dp/-close! ch))
-   dp/IReadablePort
+   df/ICloseable
+   (-close! [_] (df/-close! ch))
+   dp/ISourcePort
    (-take! [_ fn1]
      (let [ret
        (dp/-take! ch
@@ -443,7 +442,7 @@
          (channels/box (f @ret))
          ret)))
 
-   dp/IWritablePort
+   dp/ITargetPort
    (-put! [_ val fn1] (dp/-put! ch val fn1))))
 
 (defn map>
@@ -453,11 +452,11 @@
   (reify
    df/IOpenAware
    (-open? [_] (df/-open? ch)) 
-   dp/ICloseablePort
-   (-close! [_] (dp/-close! ch))
-   dp/IReadablePort
+   df/ICloseable
+   (-close! [_] (df/-close! ch))
+   dp/ISourcePort
    (-take! [_ fn1] (dp/-take! ch fn1))
-   dp/IWritablePort
+   dp/ITargetPort
    (-put! [_ val fn1]
      (dp/-put! ch (f val) fn1))))
 
@@ -474,15 +473,15 @@
   (reify
    df/IOpenAware
    (-open? [_] (df/-open? ch)) 
-   dp/ICloseablePort
-   (-close! [_] (dp/-close! ch))
-   dp/IReadablePort
+   df/ICloseable
+   (-close! [_] (df/-close! ch))
+   dp/ISourcePort
    (-take! [_ fn1] (dp/-take! ch fn1))
-   dp/IWritablePort
+   dp/ITargetPort
    (-put! [_ val fn1]
      (if (p val)
       (dp/-put! ch val fn1)
-      (channels/box (df/-open? ch)))))
+      (channels/box (df/-open? ch))))))
 
 (defn remove>
   "Takes a predicate and a target channel, and returns a channel which
@@ -525,7 +524,7 @@
         (close! out)
         (do (doseq [v (f val)]
               (>! out v))
-            (when-not (impl/closed? out)
+            (when (df/open? out)
               (recur)))))))
 
 (defn mapcat<
@@ -760,12 +759,12 @@
         m (reify
            Mux
            (muxch* [_] out)
-           dcf/IConfigured
+           df/IConfigured
            (-config [o] {:solo-mode @solo-mode})
-           dcf/ITunable
+           df/ITunable
            (-alter-config! [o f args]
-             (let [conf (apply f (dcf/-config o) args)]
-               (dcf/-reset-config! o conf)))
+             (let [conf (apply f (df/-config o) args)]
+               (df/-reset-config! o conf)))
            (-reset-config! [o conf]
              (when-not (empty? (dissoc conf :solo-mode))
                (throw (IllegalArgumentException. "Config must contain one key, :solo-mode.")))

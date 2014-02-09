@@ -10,7 +10,8 @@
   clojure.core.async.impl.timers
   (:require #_[clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.channels :as channels]
-            [dunaj.port :as dp])
+            [dunaj.port :as dp]
+            [dunaj.feature :as df])
   (:import [java.util.concurrent DelayQueue Delayed TimeUnit ConcurrentSkipListMap]))
 
 (set! *warn-on-reflection* true)
@@ -37,7 +38,7 @@
        (if (= timestamp ostamp)
          0
          1))))
-  dp/ICloseablePort
+  df/ICloseable
   (-close! [this]
     (dp/-close! channel)))
 
@@ -60,7 +61,7 @@
     (loop []
       (let [^TimeoutQueueEntry tqe (.take q)]
         (.remove timeouts-map (.timestamp tqe) tqe)
-        (dp/close! tqe))
+        (df/close! tqe))
       (recur))))
 
 (defonce timeout-daemon
