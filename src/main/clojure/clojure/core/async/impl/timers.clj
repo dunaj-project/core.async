@@ -40,7 +40,7 @@
          1))))
   df/ICloseable
   (-close! [this]
-    (dp/-close! channel)))
+    (df/-close! channel)))
 
 (defn timeout
   "returns a channel that will close after msecs"

@@ -9,9 +9,7 @@
 (ns clojure.core.async
   (:refer-clojure :exclude [reduce into merge map take partition
                             partition-by] :as core)
-  (:require [clojure.core.async.impl.protocols :as impl :refer [Mult tap* untap* untap-all*
-                                                                Mix admix* unmix* unmix-all* toggle* solo-mode*
-                                                                Pub sub* unsub* unsub-all*]]
+  (:require [clojure.core.async.impl.protocols :as impl :refer [Mix admix* unmix* unmix-all* toggle* solo-mode*]]
             [clojure.core.async.impl.channels :as channels]
             [clojure.core.async.impl.buffers :as buffers]
             [clojure.core.async.impl.timers :as timers]
@@ -661,10 +659,10 @@
            Mux
            (muxch* [_] ch)
 
-           Mult
-           (tap* [_ ch close?] (swap! cs assoc ch close?) nil)
-           (untap* [_ ch] (swap! cs dissoc ch) nil)
-           (untap-all* [_] (reset! cs {}) nil))
+           dp/IMult
+           (-tap! [_ ch close?] (swap! cs assoc ch close?) nil)
+           (-untap! [_ ch] (swap! cs dissoc ch) nil)
+           (-untap-all! [_] (reset! cs {}) nil))
         dchan (chan 1)
         dctr (atom nil)
         done (fn [_] (when (zero? (swap! dctr dec))
@@ -679,7 +677,7 @@
            (doseq [c chs]
              (when-not (put! c val done)
                (swap! dctr dec)
-               (untap* m c)))
+               (dp/-untap! m c)))
            ;;wait for all
            (when (seq chs)
              (<! dchan))
@@ -692,7 +690,7 @@
   By default the channel will be closed when the source closes,
   but can be determined by the close? parameter."
   ([mult ch] (tap mult ch true))
-  ([mult ch close?] (tap* mult ch close?) ch))
+  ([mult ch close?] (dp/-tap! mult ch close?) ch))
 
 (defn tap2
   "Copies the mult source onto the supplied channel.
@@ -700,16 +698,16 @@
   By default the channel will be closed when the source closes,
   but can be determined by the keep-open? parameter."
   ([mult ch] (tap2 mult ch false))
-  ([mult ch keep-open?] (tap* mult ch (not keep-open?)) ch))
+  ([mult ch keep-open?] (dp/-tap! mult ch (not keep-open?)) ch))
 
 (defn untap
   "Disconnects a target channel from a mult"
   [mult ch]
-  (untap* mult ch))
+  (dp/-untap! mult ch))
 
 (defn untap-all
   "Disconnects all target channels from a mult"
-  [mult] (untap-all* mult))
+  [mult] (dp/-untap-all! mult))
 
 (defn mix
   "Creates and returns a mix of one or more input channels which will
@@ -858,15 +856,15 @@
               Mux
               (muxch* [_] ch)
 
-              Pub
-              (sub* [p topic ch close?]
+              dp/IPub
+              (-sub! [p topic ch close?]
                     (let [m (ensure-mult topic)]
                       (tap m ch close?)))
-              (unsub* [p topic ch]
+              (-unsub! [p topic ch]
                       (when-let [m (get @mults topic)]
                         (untap m ch)))
-              (unsub-all* [_] (reset! mults {}))
-              (unsub-all* [_ topic] (swap! mults dissoc topic)))]
+              (-unsub-all! [_] (reset! mults {}))
+              (-unsub-all! [_ topic] (swap! mults dissoc topic)))]
        (go-loop []
          (let [val (<! ch)]
            (if (nil? val)
@@ -886,25 +884,25 @@
   By default the channel will be closed when the source closes,
   but can be determined by the close? parameter."
   ([p topic ch] (sub p topic ch true))
-  ([p topic ch close?] (sub* p topic ch close?)))
+  ([p topic ch close?] (dp/-sub! p topic ch close?)))
 
 (defn sub2
   "Subscribes a channel to a topic of a pub.
 
   By default the channel will be closed when the source closes,
   but can be determined by the keep-open? parameter."
-  ([p topic ch] (sub p topic ch false))
-  ([p topic ch keep-open?] (sub* p topic ch (not keep-open?))))
+  ([p topic ch] (sub2 p topic ch false))
+  ([p topic ch keep-open?] (dp/-sub! p topic ch (not keep-open?))))
 
 (defn unsub
   "Unsubscribes a channel from a topic of a pub"
   [p topic ch]
-  (unsub* p topic ch))
+  (dp/-unsub! p topic ch))
 
 (defn unsub-all
   "Unsubscribes all channels from a pub, or a topic of a pub"
-  ([p] (unsub-all* p))
-  ([p topic] (unsub-all* p topic)))
+  ([p] (dp/-unsub-all! p))
+  ([p topic] (dp/-unsub-all! p topic)))
 
 ;;; these are down here because they alias core fns, don't want accidents above
 
