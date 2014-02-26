@@ -16,7 +16,6 @@
             [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.dispatch :as dispatch]
             [dunaj.port :as dp]
-            [dunaj.feature :as df]
             [clojure.set :refer (intersection)])
   (:import [java.util.concurrent.locks Lock]
            [java.util.concurrent.atomic AtomicReferenceArray]))
@@ -950,7 +949,7 @@
   (try
     (run-state-machine state)
     (catch Throwable ex
-      (df/-close! (aget-object state USER-START-IDX))
+      (dp/-close! (aget-object state USER-START-IDX))
       (throw ex))))
 
 (defn take! [state blk c]
@@ -974,7 +973,7 @@
   (let [c (aget-object state USER-START-IDX)]
            (when-not (nil? value)
              (dp/-put! c value (fn-handler (fn [] nil))))
-           (df/-close! c)
+           (dp/-close! c)
            c))
 
 

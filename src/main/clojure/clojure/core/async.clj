@@ -9,7 +9,8 @@
 (ns clojure.core.async
   (:refer-clojure :exclude [reduce into merge map take partition
                             partition-by] :as core)
-  (:require [clojure.core.async.impl.protocols :as impl :refer [Mix admix* unmix* unmix-all* toggle* solo-mode*]]
+  (:require [clojure.core.async.impl.protocols :as impl :refer
+             [Mix admix* unmix* unmix-all* toggle* solo-mode*]]
             [clojure.core.async.impl.channels :as channels]
             [clojure.core.async.impl.buffers :as buffers]
             [clojure.core.async.impl.timers :as timers]
@@ -19,11 +20,11 @@
             [clojure.core.async.impl.concurrent :as conc]
             [clojure.bootstrap :refer [replace-var!]]
             [dunaj.coll :as dc]
-            [dunaj.buffer :as db]
             [dunaj.port :as dp]
             [dunaj.time :as dt]
             [dunaj.feature :as df]
-            [dunaj.state :refer [replace-macro!]])
+            [dunaj.state.var :refer [replace-macro!]]
+            [dunaj.state :as ds])
   (:import [clojure.core.async ThreadLocalRandom]
            [java.util.concurrent.locks Lock]
            [java.util.concurrent Executors Executor]
@@ -67,7 +68,7 @@
   "Returns true if a channel created with buff will never block. That is to say,
    puts into this buffer will never cause the buffer to be full. "
   [buff]
-  (satisfies? dc/ISatiable buff))
+  (satisfies? dc/IFullAware buff))
 
 (defn chan
   "Creates a channel with an optional buffer. If buf-or-n is a number,
@@ -158,7 +159,7 @@
   pending takes, they will be dispatched with nil. Closing a closed
   channel is a no-op. Returns nil."
   [chan]
-  (df/-close! chan))
+  (dp/-close! chan))
 
 (defonce ^:private ^java.util.concurrent.atomic.AtomicLong id-gen (java.util.concurrent.atomic.AtomicLong.))
 
@@ -417,10 +418,10 @@
   the source channel"
   [f ch]
   (reify
-   df/IOpenAware
-   (-open? [_] (df/-open? ch))
-   df/ICloseable
-   (-close! [_] (df/-close! ch))
+   ds/IOpenAware
+   (-open? [_] (ds/-open? ch))
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
    dp/ISourcePort
    (-take! [_ fn1]
      (let [ret
@@ -448,10 +449,10 @@
   applies f to each value before supplying it to the target channel."
   [f ch]
   (reify
-   df/IOpenAware
-   (-open? [_] (df/-open? ch)) 
-   df/ICloseable
-   (-close! [_] (df/-close! ch))
+   ds/IOpenAware
+   (-open? [_] (ds/-open? ch)) 
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
    dp/ISourcePort
    (-take! [_ fn1] (dp/-take! ch fn1))
    dp/ITargetPort
@@ -469,17 +470,17 @@
   target channel."
   [p ch]
   (reify
-   df/IOpenAware
-   (-open? [_] (df/-open? ch)) 
-   df/ICloseable
-   (-close! [_] (df/-close! ch))
+   ds/IOpenAware
+   (-open? [_] (ds/-open? ch)) 
+   dp/ICloseablePort
+   (-close! [_] (dp/-close! ch))
    dp/ISourcePort
    (-take! [_ fn1] (dp/-take! ch fn1))
    dp/ITargetPort
    (-put! [_ val fn1]
      (if (p val)
       (dp/-put! ch val fn1)
-      (channels/box (df/-open? ch))))))
+      (channels/box (ds/-open? ch))))))
 
 (defn remove>
   "Takes a predicate and a target channel, and returns a channel which
@@ -522,7 +523,7 @@
         (close! out)
         (do (doseq [v (f val)]
               (>! out v))
-            (when (df/open? out)
+            (when (ds/open? out)
               (recur)))))))
 
 (defn mapcat<
@@ -757,18 +758,20 @@
         m (reify
            Mux
            (muxch* [_] out)
-           df/IConfigured
+           df/IConfig
            (-config [o] {:solo-mode @solo-mode})
-           df/ITunable
-           (-alter-config! [o f args]
-             (let [conf (apply f (df/-config o) args)]
-               (df/-reset-config! o conf)))
-           (-reset-config! [o conf]
-             (when-not (empty? (dissoc conf :solo-mode))
-               (throw (IllegalArgumentException. "Config must contain one key, :solo-mode.")))
-             (if-let [sm (:solo-mode conf)]
-               (solo-mode* o sm)
-               (throw (IllegalArgumentException. "Config must contain :solo-mode."))))
+           df/IMutableConfig
+           (-config-ref [o]
+             (reify
+               ds/IReference
+               (-deref [x] (df/config o))
+               ds/IMutable
+               (-reset! [x conf]
+                 (when-not (empty? (dissoc conf :solo-mode))
+                   (throw (IllegalArgumentException. "Config must contain one key, :solo-mode.")))
+                 (if-let [sm (:solo-mode conf)]
+                   (solo-mode* o sm)
+                   (throw (IllegalArgumentException. "Config must contain :solo-mode."))))))
            Mix
            (admix* [_ ch] (swap! cs assoc ch {}) (changed))
            (unmix* [_ ch] (swap! cs dissoc ch) (changed))

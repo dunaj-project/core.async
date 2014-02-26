@@ -12,8 +12,8 @@
             [clojure.core.async.impl.dispatch :as dispatch]
             [clojure.core.async.impl.mutex :as mutex]
             [dunaj.coll :as dc]
-            [dunaj.mutable :as dm]
-            [dunaj.feature :as df]
+            [dunaj.transient :as dt]
+            [dunaj.state :as ds]
             [dunaj.port :as dp])
   (:import [java.util LinkedList Queue Iterator]
            [java.util.concurrent.locks Lock]))
@@ -89,7 +89,7 @@
               (let [put-cb (and (impl/active? handler) (impl/commit handler))]
                 (.unlock handler)
                 (if put-cb
-                  (do (set! buf (dm/conj! buf val))
+                  (do (set! buf (dt/conj! buf val))
                       (.unlock mutex)
                       (box true))
                   (do (.unlock mutex)
@@ -120,7 +120,7 @@
         (do
           (if-let [take-cb (commit-handler)]
             (let [val (let [v (dc/peek buf)]
-                        (set! buf (dm/pop! buf))
+                        (set! buf (dt/pop! buf))
                         v)
                   iter (.iterator puts)
                   cb (when (.hasNext iter)
@@ -134,7 +134,7 @@
                                    cb
                                    (when (.hasNext iter)
                                      (recur (.next iter))))))]
-                         (set! buf (dm/conj! buf v))
+                         (set! buf (dt/conj! buf v))
                          cb))]
               (.unlock mutex)
               (when cb
@@ -181,9 +181,9 @@
                 (.unlock mutex)
                 nil)))))))
 
-  df/IOpenAware
+  ds/IOpenAware
   (-open? [_] (not @closed))
-  df/ICloseable
+  dp/ICloseablePort
   (-close!
     [this]
     (.lock mutex)
