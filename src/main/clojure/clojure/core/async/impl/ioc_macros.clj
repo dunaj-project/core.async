@@ -15,7 +15,7 @@
   (:require [clojure.pprint :refer [pprint]]
             [clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.dispatch :as dispatch]
-            [dunaj.port :as dp]
+            [dunaj.concurrent.port :as dp]
             [clojure.set :refer (intersection)])
   (:import [java.util.concurrent.locks Lock]
            [java.util.concurrent.atomic AtomicReferenceArray]))
@@ -980,13 +980,13 @@
 (def async-custom-terminators
   {'<! `take!
    'clojure.core.async/<! `take!
-   'dunaj.port/<! `take!
+   'dunaj.concurrent.port/<! `take!
    '>! `put!
    'clojure.core.async/>! `put!
-   'dunaj.port/>! `put!
+   'dunaj.concurrent.port/>! `put!
    'alts! 'clojure.core.async/ioc-alts!
    'clojure.core.async/alts! 'clojure.core.async/ioc-alts!
-   'dunaj.port/alts! 'clojure.core.async/ioc-alts!
+   'dunaj.concurrent.port/alts! 'clojure.core.async/ioc-alts!
    :Return `return-chan})
 
 

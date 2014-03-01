@@ -14,7 +14,7 @@
             [dunaj.coll :as dc]
             [dunaj.transient :as dt]
             [dunaj.state :as ds]
-            [dunaj.port :as dp])
+            [dunaj.concurrent.port :as dp])
   (:import [java.util LinkedList Queue Iterator]
            [java.util.concurrent.locks Lock]))
 

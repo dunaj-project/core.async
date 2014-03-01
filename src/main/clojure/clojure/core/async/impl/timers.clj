@@ -10,7 +10,7 @@
   clojure.core.async.impl.timers
   (:require #_[clojure.core.async.impl.protocols :as impl]
             [clojure.core.async.impl.channels :as channels]
-            [dunaj.port :as dp])
+            [dunaj.concurrent.port :as dp])
   (:import [java.util.concurrent DelayQueue Delayed TimeUnit ConcurrentSkipListMap]))
 
 (set! *warn-on-reflection* true)

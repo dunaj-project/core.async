@@ -27,7 +27,7 @@
             [clojure.core.async.impl.mutex :as mutex]
             [clojure.core.async.impl.dispatch :as dispatch]
             [clojure.core.async.impl.channels :as channels]
-            [dunaj.port :as dp])
+            [dunaj.concurrent.port :as dp])
   (:import [java.util HashSet Set Collection]
            [java.util.concurrent.locks Lock]))
 
