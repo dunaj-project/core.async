@@ -34,7 +34,7 @@
   (cleanup [_])
   (abort [_]))
 
-(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^:unsynchronized-mutable wrap closed ^Lock mutex r]
+(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^:unsynchronized-mutable wrap closed ^Lock mutex ^dunaj.coll.IReducing r]
   MMC
   (cleanup
    [_]
@@ -201,8 +201,13 @@
                        (.unlock putter)
                        (.remove iter)
                        (let [cbs (if cb (conj cbs cb) cbs)
-                             done? (when cb (reduced? (add! buf val)))] ;; TODO
-                         (if (and (not done?) (not (impl/full? buf)) (.hasNext iter))
+                             nwrap (if cb (._step r wrap val) wrap)
+                             done? (reduced? nwrap)
+                             nwrap (dch/strip-reduced nwrap)
+                             buf-ref (._unwrap r nwrap)
+                             buf @buf-ref]
+                         (set! wrap nwrap)
+                         (if (and (not done?) (not (dc/full? buf)) (.hasNext iter))
                            (recur cbs (.next iter))
                            [done? cbs])))))]
              (when done?
@@ -239,10 +244,15 @@
              (box val))
            (if @closed
              (do
-               (when buf (add! buf)) ;; TODO
-               (let [has-val (and buf (pos? (count buf)))]
+               (let [nwrap (strip-reduced (._finish r wrap))
+                     buf-ref (when nwrap (._unwrap r nwrap))
+                     buf (when buf-ref @buf-ref)
+                     has-val (and buf (pos? (count buf)))]
+                 (set! wrap nwrap)
                  (if-let [take-cb (commit-handler)]
-                   (let [val (when has-val (impl/remove! buf))]
+                   (let [val (when has-val (dc/peek buf))
+                         buf (when has-val (dc/pop! buf))
+                         _ (when has-val (ds/reset! buf-ref buf))]
                      (.unlock mutex)
                      (box val))
                    (do
@@ -270,16 +280,22 @@
        nil)
      (do
        (reset! closed true)
-       (when (and buf (.isEmpty puts))
-         (add! buf)) ;; TODO
-       (let [iter (.iterator takes)]
+       (when (.isEmpty puts)
+         (let [nwrap (strip-reduced (._finish r wrap))]
+           (set! wrap nwrap)))
+       (let [iter (.iterator takes)
+             buf-ref (when wrap (._unwrap r wrap))]
          (when (.hasNext iter)
            (loop [^Lock taker (.next iter)]
              (.lock taker)
              (let [take-cb (and (impl/active? taker) (impl/commit taker))]
                (.unlock taker)
                (when take-cb
-                 (let [val (when (and buf (pos? (count buf))) (impl/remove! buf))] ;; TODO
+                 (let [buf (when buf-ref @buf-ref)
+                       has-val (and buf (pos? (count buf)))
+                       val (when has-val (dc/peek buf))
+                       buf (when has-val (dc/pop! buf))
+                       _ (when has-val (ds/reset! buf-ref buf))]
                    (dispatch/run (fn [] (take-cb val)))))
                (.remove iter)
                (when (.hasNext iter)
