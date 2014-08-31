@@ -17,12 +17,12 @@
 #_(deftype FixedBuffer [^LinkedList buf ^long n]
   impl/Buffer
   (full? [this]
-    (= (.size buf) n))
+    (>= (.size buf) n))
   (remove! [this]
     (.removeLast buf))
-  (add! [this itm]
-    (assert (not (impl/full? this)) "Can't add to a full buffer")
-    (.addFirst buf itm))
+  (add!* [this itm]
+    (.addFirst buf itm)
+    this)
   clojure.lang.Counted
   (count [this]
     (.size buf)))
@@ -38,9 +38,10 @@
     false)
   (remove! [this]
     (.removeLast buf))
-  (add! [this itm]
-    (when-not (= (.size buf) n)
-      (.addFirst buf itm)))
+  (add!* [this itm]
+    (when-not (>= (.size buf) n)
+      (.addFirst buf itm))
+    this)
   clojure.lang.Counted
   (count [this]
     (.size buf)))
@@ -55,10 +56,11 @@
     false)
   (remove! [this]
     (.removeLast buf))
-  (add! [this itm]
+  (add!* [this itm]
     (when (= (.size buf) n)
       (impl/remove! this))
-    (.addFirst buf itm))
+    (.addFirst buf itm)
+    this)
   clojure.lang.Counted
   (count [this]
     (.size buf)))

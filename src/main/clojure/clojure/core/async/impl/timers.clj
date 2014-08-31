@@ -43,7 +43,7 @@
 
 (defn timeout
   "returns a channel that will close after msecs"
-  [msecs]
+  [^long msecs]
   (let [timeout (+ (System/currentTimeMillis) msecs)
         me (.ceilingEntry timeouts-map timeout)]
     (or (when (and me (< (.getKey me) (+ timeout TIMEOUT_RESOLUTION_MS)))

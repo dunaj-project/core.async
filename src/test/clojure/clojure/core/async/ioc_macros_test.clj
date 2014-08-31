@@ -3,28 +3,36 @@
                             partition-by])
   (:require [clojure.core.async.impl.ioc-macros :as ioc]
             [clojure.core.async :refer :all :as async]
-            [clojure.test :refer :all]))
+            [clojure.test :refer :all])
+  (:import [java.io FileInputStream ByteArrayOutputStream File]))
 
-(defn pause [state blk val]
+(defn pause [x]
+  x)
+
+(defn pause-run [state blk val]
   (ioc/aset-all! state ioc/STATE-IDX blk ioc/VALUE-IDX val)
   :recur)
+
 
 (defmacro runner
   "Creates a runner block. The code inside the body of this macro will be translated
   into a state machine. At run time the body will be run as normal. This transform is
   only really useful for testing."
   [& body]
-  (let [terminators {'pause `pause}]
+  (let [terminators {`pause `pause-run}]
     `(let [captured-bindings# (clojure.lang.Var/getThreadBindingFrame)
-           state# (~(ioc/state-machine body 0 &env terminators))]
+           state# (~(ioc/state-machine `(do ~@body) 0 (keys &env) terminators))]
        (ioc/aset-all! state#
                   ~ioc/BINDINGS-IDX
                   captured-bindings#)
        (ioc/run-state-machine state#)
        (ioc/aget-object state# ioc/VALUE-IDX))))
 
+
 (defmacro locals-test []
-  (if (get &env 'x)
+  (if (if (contains? &env :locals)
+        (get (:locals &env) 'x)
+        (get &env 'x))
     :pass
     :fail))
 
@@ -142,6 +150,15 @@
                   f (fn [] x)]
               (f))))))
 
+  (testing "lazy-seqs in bodies"
+    (is (= (runner
+            (loop []
+              (when-let [x (pause 10)]
+                (pause (vec (for [i (range x)]
+                              i)))
+                (if-not x
+                  (recur))))))))
+
   (testing "specials cannot be shadowed"
     (is (= 3
            (let [let* :foo] (runner (let* [x 3] x))))))
@@ -182,7 +199,7 @@
               (assert false)
               (catch Throwable ex 42)))))
 
-    (let [a (atom false)
+   (let [a (atom false)
           v (runner
              (try
                true
@@ -190,7 +207,7 @@
                (finally (pause (reset! a true)))))]
       (is (and @a v)))
 
-    (let [a (atom false)
+   (let [a (atom false)
           v (runner
              (try
                (assert false)
@@ -198,7 +215,7 @@
                (finally (reset! a true))))]
       (is (and @a v)))
 
-    (let [a (atom false)
+   (let [a (atom false)
           v (try (runner
                   (try
                     (assert false)
@@ -207,7 +224,7 @@
       (is (and @a v)))
 
 
-    (let [a (atom 0)
+   (let [a (atom 0)
           v (runner
              (try
                (try
@@ -216,7 +233,7 @@
                (finally (swap! a inc))))]
       (is (= @a 2)))
 
-    (let [a (atom 0)
+   (let [a (atom 0)
           v (try (runner
                   (try
                     (try
@@ -226,7 +243,7 @@
                  (catch AssertionError ex ex))]
       (is (= @a 2)))
 
-    (let [a (atom 0)
+   (let [a (atom 0)
           v (try (runner
                   (try
                     (try
@@ -238,7 +255,7 @@
                  (catch AssertionError ex ex))]
       (is (= @a 2)))
 
-    (let [a (atom 0)
+   (let [a (atom 0)
           v (try (runner
                   (try
                     (try
@@ -248,62 +265,63 @@
                     (catch Throwable ex (pause (throw ex)))
                     (finally (pause (swap! a inc)))))
                  (catch AssertionError ex ex))]
-      (is (= @a 2)))))
+     (is (= @a 2)))))
 
-(defn identity-chan
-  "Defines a channel that instantly writes the given value"
-  [x]
-  (let [c (chan 1)]
-    (>!! c x)
-    (close! c)
-    c))
 
-(deftest async-test
-  (testing "values are returned correctly"
-    (is (= 10
-           (<!! (go (<! (identity-chan 10)))))))
-  (testing "writes work"
-    (is (= 11
-           (<!! (go (let [c (chan 1)]
-                      (>! c (<! (identity-chan 11)))
-                      (<! c)))))))
+  (defn identity-chan
+    "Defines a channel that instantly writes the given value"
+    [x]
+    (let [c (chan 1)]
+      (>!! c x)
+      (close! c)
+      c))
 
-  (testing "case with go"
-    (is (= :1
-           (<!! (go (case (name :1)
-                      "0" :0
-                      "1" :1
-                      :3))))))
+  (deftest async-test
+    (testing "values are returned correctly"
+      (is (= 10
+             (<!! (go (<! (identity-chan 10)))))))
+    (testing "writes work"
+      (is (= 11
+             (<!! (go (let [c (chan 1)]
+                        (>! c (<! (identity-chan 11)))
+                        (<! c)))))))
 
-  (testing "nil result of go"
-    (is (= nil
-           (<!! (go nil)))))
+    (testing "case with go"
+      (is (= :1
+             (<!! (go (case (name :1)
+                        "0" :0
+                        "1" :1
+                        :3))))))
 
-  (testing "take inside binding of loop"
-    (is (= 42
-           (<!! (go (loop [x (<! (identity-chan 42))]
-                     x))))))
+    (testing "nil result of go"
+      (is (= nil
+             (<!! (go nil)))))
 
-  (testing "can get from a catch"
-    (let [c (identity-chan 42)]
+    (testing "take inside binding of loop"
       (is (= 42
-             (<!! (go (try
-                        (assert false)
-                        (catch Throwable ex (<! c))))))))))
+             (<!! (go (loop [x (<! (identity-chan 42))]
+                        x))))))
 
-(deftest enqueued-chan-ops
-  (testing "enqueued channel puts re-enter async properly"
-    (is (= [:foo 42]
-           (let [c (chan)
-                 result-chan (go (>! c :foo) 42)]
-             [(<!! c) (<!! result-chan)]))))
-  (testing "enqueued channel takes re-enter async properly"
-    (is (= :foo
-           (let [c (chan)
-                 async-chan (go (<! c))]
-             (>!! c :foo)
-             (<!! async-chan)))))
-  (testing "puts into channels with full buffers re-enter async properly"
+    (testing "can get from a catch"
+      (let [c (identity-chan 42)]
+        (is (= 42
+               (<!! (go (try
+                          (assert false)
+                          (catch Throwable ex (<! c))))))))))
+
+  (deftest enqueued-chan-ops
+    (testing "enqueued channel puts re-enter async properly"
+      (is (= [:foo 42]
+             (let [c (chan)
+                   result-chan (go (>! c :foo) 42)]
+               [(<!! c) (<!! result-chan)]))))
+    (testing "enqueued channel takes re-enter async properly"
+      (is (= :foo
+             (let [c (chan)
+                   async-chan (go (<! c))]
+               (>!! c :foo)
+               (<!! async-chan)))))
+    (testing "puts into channels with full buffers re-enter async properly"
       (is (= #{:foo :bar :baz :boz}
              (let [c (chan 1)
                    async-chan (go
@@ -318,32 +336,32 @@
                      (<!! c)
                      (<!! async-chan)]))))))
 
-(defn rand-timeout [x]
-  (timeout (rand-int x)))
+  (defn rand-timeout [x]
+    (timeout (rand-int x)))
 
-(deftest alt-tests
-  (testing "alts works at all"
+  (deftest alt-tests
+    (testing "alts works at all"
       (let [c (identity-chan 42)]
         (is (= [42 c]
                (<!! (go (alts!
                          [c])))))))
-  (testing "alt works"
+    (testing "alt works"
       (is (= [42 :foo]
              (<!! (go (alt!
                        (identity-chan 42) ([v] [v :foo])))))))
 
-  (testing "alts can use default"
+    (testing "alts can use default"
       (is (= [42 :default]
              (<!! (go (alts!
                        [(chan 1)] :default 42))))))
 
-  (testing "alt can use default"
+    (testing "alt can use default"
       (is (= 42
              (<!! (go (alt!
                        (chan) ([v] :failed)
                        :default 42))))))
 
-  (testing "alt obeys its random-array initialization"
+    (testing "alt obeys its random-array initialization"
       (is (= #{:two}
              (with-redefs [clojure.core.async/random-array
                            (constantly (int-array [1 2 0]))]
@@ -354,18 +372,18 @@
                                          (identity-chan :one) ([v] v)
                                          (identity-chan :two) ([v] v)
                                          (identity-chan :three) ([v] v))]
-                              (recur (conj acc label) (inc cnt))))
-                          acc))))))))
+                              (recur (conj acc label) (inc cnt)))
+                            acc)))))))))
 
-(deftest close-on-exception-tests
-  (testing "threads"
-    (is (nil? (<!! (thread (assert false "This exception is expected")))))
-    (is (nil? (<!! (thread (alts!! [(identity-chan 42)])
-                           (assert false "This exception is expected"))))))
-  (testing "go blocks"
-    (is (nil? (<!! (go (assert false "This exception is expected")))))
-    (is (nil? (<!! (go (alts! [(identity-chan 42)])
-                       (assert false "This exception is expected")))))))
+  (deftest close-on-exception-tests
+    (testing "threads"
+      (is (nil? (<!! (thread (assert false "This exception is expected")))))
+      (is (nil? (<!! (thread (alts!! [(identity-chan 42)])
+                             (assert false "This exception is expected"))))))
+    (testing "go blocks"
+      (is (nil? (<!! (go (assert false "This exception is expected")))))
+      (is (nil? (<!! (go (alts! [(identity-chan 42)])
+                         (assert false "This exception is expected")))))))
 
 (deftest resolution-tests
     (let [<! (constantly 42)]
@@ -389,10 +407,3 @@
     (let [c (identity-chan 42)]
       (is (= [42 c] (<!! (go (async/alts! [c]))))
           "symbol translations apply to resolved symbols")))
-
-
-
-
-(runner
-            (try 42
-                 (catch Throwable ex ex)))

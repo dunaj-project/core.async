@@ -1,5 +1,5 @@
 (ns cljs.core.async.tests
-  (:require [cljs.core.async :refer [buffer dropping-buffer sliding-buffer put! take! chan close! take partition partition-by] :as async]
+  (:require [cljs.core.async :refer [buffer dropping-buffer sliding-buffer put! take! chan close! take partition-by] :as async]
             [cljs.core.async.impl.dispatch :as dispatch]
             [cljs.core.async.impl.buffers :as buff]
             [cljs.core.async.impl.timers :as timers :refer [timeout]]
@@ -253,3 +253,59 @@
     (go
      (is= [["a" "b"] [1 :2 3] ["c"]]
           (<! (async/into [] (async/partition-by string? (async/to-chan ["a" "b" 1 :2 3 "c"]))))))))
+
+
+(deftest dispatch-bugs
+  (testing "puts are moved to buffers"
+    (let [c (chan 1)
+          a (atom 0)]
+      (put! c 42 (fn [_] (swap! a inc))) ;; Goes into buffer
+      (put! c 42 (fn [_] (swap! a inc))) ;; Goes into puts
+      (take! c (fn [_]
+                 ;; Should release the iten in the puts and
+                 ;; put its value into the buffer, dispatching the callback
+                 (go
+                   (<! (timeout 500))
+                   ;; Thus this should be 2
+                   (is= @a 2)))))))
+
+(defn integer-chan
+  "Returns a channel upon which will be placed integers from 0 to n (exclusive) at 10 ms intervals, using the provided xform"
+  [n xform]
+  (let [c (chan 1 xform)]
+    (go
+      (loop [i 0]
+        (if (< i n)
+          (do
+            (<! (timeout 10))
+            (>! c i)
+            (recur (inc i)))
+          (close! c))))
+    c))
+
+(deftest test-transducers
+         (testing "base case without transducer"
+                  (go (is (= (range 10)
+                             (<! (async/into [] (integer-chan 10 nil)))))))
+         (testing "mapping transducer"
+                  (go (is (= (map str (range 10))
+                             (<! (async/into [] (integer-chan 10 (map str))))))))
+         (testing "filtering transducer"
+                  (go (is (= (filter even? (range 10))
+                             (<! (async/into [] (integer-chan 10 (filter even?))))))))
+         (testing "flatpmapping transducer"
+                  (let [pair-of (fn [x] [x x])]
+                    (go (is (= (mapcat pair-of (range 10))
+                               (<! (async/into [] (integer-chan 10 (flatmap pair-of)))))))))
+         (testing "partitioning transducer"
+           (go (is (= [[0 1 2 3 4] [5 6 7]]
+                      (<! (async/into [] (integer-chan 8 (partition-all 5)))))))
+           (go (is (= [[0 1 2 3 4] [5 6 7 8 9]]
+                      (<! (async/into [] (integer-chan 10 (partition-all 5)))))))))
+
+(deftest test-bufferless
+  (let [c (chan)]
+    (go
+      (is (= [:value c] (async/alts! [c (async/timeout 6000)] :priority true))))
+    (go
+      (is (= [true c] (async/alts! [[c :value] (async/timeout 6000)] :priority true))))))

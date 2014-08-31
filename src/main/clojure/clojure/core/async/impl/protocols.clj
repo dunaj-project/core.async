@@ -7,7 +7,8 @@
 ;;   You must not remove this notice, or any other, from this software.
 
 (ns ^{:skip-wiki true}
-  clojure.core.async.impl.protocols)
+  clojure.core.async.impl.protocols
+  (:require [dunaj.coll :as dc]))
 
 
 (def ^:const ^int MAX-QUEUE-SIZE 1024)
@@ -30,7 +31,13 @@
 #_(defprotocol Buffer
   (full? [b])
   (remove! [b])
-  (add! [b itm]))
+  (add!* [b itm]))
+
+(defn add!
+  ([b] b)
+  ([b itm]
+     (assert (not (nil? itm)))
+     (dc/conj! b itm)))
 
 #_(defprotocol Executor
   (exec [e runnable] "execute runnable asynchronously"))
