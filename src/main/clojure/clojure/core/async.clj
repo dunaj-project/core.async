@@ -743,7 +743,12 @@
                    (throw (IllegalArgumentException. "Config must contain one key, :solo-mode.")))
                  (if-let [sm (:solo-mode conf)]
                    (solo-mode* o sm)
-                   (throw (IllegalArgumentException. "Config must contain :solo-mode."))))))
+                   (throw (IllegalArgumentException. "Config must contain :solo-mode."))))
+               ds/IAdjustable
+               (-adjust! [x key val]
+                 (if (identical? key :solo-mode)
+                   (solo-mode* o val)
+                   (throw (IllegalArgumentException. "Only :solo-mode is supported"))))))
            Mix
            (admix* [_ ch] (swap! cs assoc ch {}) (changed))
            (unmix* [_ ch] (swap! cs dissoc ch) (changed))

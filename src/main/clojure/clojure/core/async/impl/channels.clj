@@ -210,7 +210,8 @@
                          (if (and (not done?) (not (dc/full? buf)) (.hasNext iter))
                            (recur cbs (.next iter) nwrap)
                            [done? cbs nwrap])))))]
-             (set! wrap nwrap)
+             (when nwrap
+               (set! wrap nwrap))
              (when done?
                (abort this))
              (.unlock mutex)
