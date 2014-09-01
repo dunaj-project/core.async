@@ -899,7 +899,7 @@
           (let [old-frame# (clojure.lang.Var/getThreadBindingFrame)
                 ret-value# (try
                              (clojure.lang.Var/resetThreadBindingFrame (aget-object ~state-sym ~BINDINGS-IDX))
-                             (loop []
+                             (clojure.core/loop []
                                (let [result# (case (int (aget-object ~state-sym ~STATE-IDX))
                                                ~@(mapcat
                                                   (fn [[id blk]]
@@ -1063,6 +1063,11 @@
   (clojure.pprint/pprint x)
   (println "----")
   x)
+
+
+
+
+
 
 (defn state-machine [body num-user-params env user-transitions]
   (-> (an-jvm/analyze body (make-env env))

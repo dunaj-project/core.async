@@ -66,7 +66,7 @@
            (when (.hasNext iter)
              (recur (.next iter)))))))
    (.clear puts)
-   (impl/close! this))
+   (dp/-close! this))
 
   dp/ITargetPort
   (-put!
@@ -192,24 +192,25 @@
                  buf (dc/pop! buf)
                  _ (ds/reset! buf-ref buf)
                  iter (.iterator puts)
-                 [done? cbs]
+                 [done? cbs nwrap]
                  (when (.hasNext iter)
                    (loop [cbs []
-                          [^Lock putter val] (.next iter)]
+                          [^Lock putter val] (.next iter)
+                          xwrap wrap]
                      (.lock putter)
                      (let [cb (and (impl/active? putter) (impl/commit putter))]
                        (.unlock putter)
                        (.remove iter)
                        (let [cbs (if cb (conj cbs cb) cbs)
-                             nwrap (if cb (._step r wrap val) wrap)
+                             nwrap (if cb (._step r xwrap val) xwrap)
                              done? (reduced? nwrap)
                              nwrap (dch/strip-reduced nwrap)
                              buf-ref (._unwrap r nwrap)
                              buf @buf-ref]
-                         (set! wrap nwrap)
                          (if (and (not done?) (not (dc/full? buf)) (.hasNext iter))
-                           (recur cbs (.next iter))
-                           [done? cbs])))))]
+                           (recur cbs (.next iter) nwrap)
+                           [done? cbs nwrap])))))]
+             (set! wrap nwrap)
              (when done?
                (abort this))
              (.unlock mutex)
@@ -244,7 +245,7 @@
              (box val))
            (if @closed
              (do
-               (let [nwrap (strip-reduced (._finish r wrap))
+               (let [nwrap (dch/strip-reduced (._finish r wrap))
                      buf-ref (when nwrap (._unwrap r nwrap))
                      buf (when buf-ref @buf-ref)
                      has-val (and buf (pos? (count buf)))]
@@ -281,7 +282,7 @@
      (do
        (reset! closed true)
        (when (.isEmpty puts)
-         (let [nwrap (strip-reduced (._finish r wrap))]
+         (let [nwrap (dch/strip-reduced (._finish r wrap))]
            (set! wrap nwrap)))
        (let [iter (.iterator takes)
              buf-ref (when wrap (._unwrap r wrap))]
@@ -323,7 +324,7 @@
 
 (deftype HandledReducing
   [^dunaj.coll.IReducing r exh]
-  IReducing
+  dc/IReducing
   (-finish [this wrap] (try (._finish r wrap)
                             (catch Throwable t
                               (do (handle! (._unwrap r wrap) exh t)
@@ -339,9 +340,9 @@
   ([buf] (chan buf nil))
   ([buf xform] (chan buf xform nil))
   ([buf xform exh]
-     (let [dr (reducing radd!)
+     (let [dr (dc/reducing radd!)
            r (if xform (xform dr) dr)
-           r (->HandledReducing r exf)
+           r (->HandledReducing r exh)
            buf-ref (dsb/unsynchronized-reference buf)]
        (ManyToManyChannel.
-        (LinkedList.) (LinkedList.) (._wrap r buf-ref) (atom false) (mutex/mutex) r))))
+        (LinkedList.) (LinkedList.) (._wrap ^dunaj.coll.IReducing r buf-ref) (atom false) (mutex/mutex) r))))

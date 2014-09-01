@@ -5,8 +5,8 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :parent [org.clojure/pom.contrib "0.1.2"]
   :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/tools.analyzer.jvm "0.1.0-beta12"]
-                 [org.clojure/clojurescript "0.0-2311" :scope "provided"]]
+                 [org.clojure/tools.analyzer.jvm "2.0.0-dunaj-SNAPSHOT"]
+                 #_[org.clojure/clojurescript "0.0-2311" :scope "provided"]]
   :global-vars {*warn-on-reflection* true}
   :source-paths ["src/main/clojure"]
   :test-paths ["src/test/clojure"]

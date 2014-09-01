@@ -428,7 +428,7 @@
 (defmacro go-loop
   "Like (go (loop ...))"
   [bindings & body]
-  `(go (loop ~bindings ~@body)))
+  `(go (clojure.core/loop ~bindings ~@body)))
 
 (defn pipe
   "Takes elements from the from channel and supplies them to the to
