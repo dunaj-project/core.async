@@ -125,7 +125,7 @@
 (defn >!!
   "puts a val into port. nil values are not allowed. Will block if no
   buffer space is available. Returns true unless port is already closed."
-  [port val]
+  ^boolean [port val]
   (let [p (promise)
         ret (dp/-put! port val (fn-handler (fn [open?] (deliver p open?))))]
     (if ret
@@ -542,6 +542,49 @@
   pipeline, pipeline-blocking."
   ([n to af from] (pipeline-async n to af from true))
   ([n to af from close?] (pipeline* n to af from close? nil :async)))
+
+(defn pipeline2
+  "Takes elements from the from channel and supplies them to the to
+  channel, subject to the transducer xf, with parallelism n. Because
+  it is parallel, the transducer will be applied independently to each
+  element, not across elements, and may produce zero or more outputs
+  per input.  Outputs will be returned in order relative to the
+  inputs. By default, the to channel will be closed when the from
+  channel closes, but can be determined by the close?  parameter. Will
+  stop consuming the from channel if the to channel closes. Note this
+  should be used for computational parallelism. If you have multiple
+  blocking operations to put in flight, use pipeline-blocking instead,
+  If you have multiple asynchronous operations to put in flight, use
+  pipeline-async instead."
+  ([n to xf from] (pipeline2 n to xf from false))
+  ([n to xf from keep-open?] (pipeline2 n to xf from keep-open? nil))
+  ([n to xf from keep-open? ex-handler]
+     (pipeline* n to xf from (not keep-open?) ex-handler :compute)))
+
+(defn pipeline-blocking2
+  "Like pipeline, for blocking operations."
+  ([n to xf from] (pipeline-blocking2 n to xf from false))
+  ([n to xf from keep-open?]
+     (pipeline-blocking n to xf from keep-open? nil))
+  ([n to xf from keep-open? ex-handler]
+     (pipeline* n to xf from (not keep-open?) ex-handler :blocking)))
+
+(defn pipeline-async2
+  "Takes elements from the from channel and supplies them to the to
+  channel, subject to the async function af, with parallelism n. af
+  must be a function of two arguments, the first an input value and
+  the second a channel on which to place the result(s). af must close!
+  the channel before returning.  The presumption is that af will
+  return immediately, having launched some asynchronous operation
+  (i.e. in another thread) whose completion/callback will manipulate
+  the result channel. Outputs will be returned in order relative to
+  the inputs. By default, the to channel will be closed when the from
+  channel closes, but can be determined by the close?  parameter. Will
+  stop consuming the from channel if the to channel closes. See also
+  pipeline, pipeline-blocking."
+  ([n to af from] (pipeline-async2 n to af from true))
+  ([n to af from keep-open?]
+     (pipeline* n to af from (not keep-open?) nil :async)))
 
 (defn split
   "Takes a predicate and a source channel and returns a vector of two
@@ -1196,6 +1239,10 @@
 (replace-var! dunaj.concurrent.port/merge! merge)
 (replace-var! dunaj.concurrent.port/take-n! take)
 (replace-var! dunaj.concurrent.port/pipe! pipe*)
+(replace-var! dunaj.concurrent.port/pipeline! pipeline2)
+(replace-var! dunaj.concurrent.port/pipeline-blocking!
+              pipeline-blocking2)
+(replace-var! dunaj.concurrent.port/pipeline-async! pipeline-async2)
 (replace-var! dunaj.concurrent.port/onto-chan! onto-chan*)
 (replace-var! dunaj.concurrent.port/mult! mult)
 (replace-var! dunaj.concurrent.port/tap! tap2)
