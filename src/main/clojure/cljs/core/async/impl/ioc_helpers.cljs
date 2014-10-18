@@ -57,17 +57,6 @@
         :recur)
     nil))
 
-(defn ioc-alts! [state cont-block ports & {:as opts}]
-  (ioc/aset-all! state STATE-IDX cont-block)
-  (when-let [cb (cljs.core.async/do-alts
-                  (fn [val]
-                    (ioc/aset-all! state VALUE-IDX val)
-                    (run-state-machine-wrapped state))
-                  ports
-                  opts)]
-    (ioc/aset-all! state VALUE-IDX @cb)
-    :recur))
-
 (defn return-chan [state value]
   (let [^not-native c (aget state USER-START-IDX)]
            (when-not (nil? value)
@@ -102,7 +91,8 @@
 
      (and exception
           catch-block
-          (instance? catch-exception exception))
+          (or (= :default catch-exception)
+              (instance? catch-exception exception)))
      (ioc/aset-all! state
                     STATE-IDX
                     catch-block
