@@ -34,7 +34,7 @@
   (cleanup [_])
   (abort [_]))
 
-(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^:unsynchronized-mutable wrap closed ^Lock mutex ^dunaj.coll.IReducing r]
+(deftype ManyToManyChannel [^LinkedList takes ^LinkedList puts ^:unsynchronized-mutable wrap buf-ref closed ^Lock mutex ^dunaj.coll.IReducing r]
   MMC
   (cleanup
    [_]
@@ -79,7 +79,6 @@
      (do (.unlock mutex)
          (box false))
      (let [^Lock handler handler
-           buf-ref (when wrap (._unwrap r wrap))
            buf (when buf-ref @buf-ref)]
        (if (and buf (not (dc/full? buf)) (not (.isEmpty takes)))
          (do
@@ -90,7 +89,6 @@
                (let [nwrap (._step r wrap val)
                      done? (reduced? nwrap)
                      nwrap (dch/strip-reduced nwrap)
-                     buf-ref (._unwrap r nwrap)
                      buf @buf-ref]
                  (set! wrap nwrap)
                  (if (pos? (count buf))
@@ -183,7 +181,6 @@
                           (let [take-cb (and (impl/active? handler) (impl/commit handler))]
                             (.unlock handler)
                             take-cb))
-         buf-ref (when wrap (._unwrap r wrap))
          buf (when buf-ref @buf-ref)]
      (if (and buf (pos? (count buf)))
        (do
@@ -205,7 +202,6 @@
                              nwrap (if cb (._step r xwrap val) xwrap)
                              done? (reduced? nwrap)
                              nwrap (dch/strip-reduced nwrap)
-                             buf-ref (._unwrap r nwrap)
                              buf @buf-ref]
                          (if (and (not done?) (not (dc/full? buf)) (.hasNext iter))
                            (recur cbs (.next iter) nwrap)
@@ -246,11 +242,10 @@
              (box val))
            (if @closed
              (do
-               (let [nwrap (dch/strip-reduced (._finish r wrap))
-                     buf-ref (when nwrap (._unwrap r nwrap))
-                     buf (when buf-ref @buf-ref)
+               (when wrap (._finish r wrap))
+               (let [buf (when buf-ref @buf-ref)
                      has-val (and buf (pos? (count buf)))]
-                 (set! wrap nwrap)
+                 (set! wrap nil)
                  (if-let [take-cb (commit-handler)]
                    (let [val (when has-val (dc/peek buf))
                          buf (when has-val (dc/pop! buf))
@@ -283,10 +278,9 @@
      (do
        (reset! closed true)
        (when (.isEmpty puts)
-         (let [nwrap (dch/strip-reduced (._finish r wrap))]
-           (set! wrap nwrap)))
-       (let [iter (.iterator takes)
-             buf-ref (when wrap (._unwrap r wrap))]
+         (do (when wrap (._finish r wrap))
+             (set! wrap nil)))
+       (let [iter (.iterator takes)]
          (when (.hasNext iter)
            (loop [^Lock taker (.next iter)]
              (.lock taker)
@@ -328,8 +322,9 @@
   dc/IReducing
   (-finish [this wrap] (try (._finish r wrap)
                             (catch Throwable t
-                              (do (handle! (._unwrap r wrap) exh t)
-                                  wrap))))
+                              (let [ret (._unwrap r wrap)]
+                                (do (handle! ret exh t)
+                                    ret)))))
   (-wrap [this ret] (._wrap r ret))
   (-unwrap [this wrap] (._unwrap r wrap))
   (-step [this wrap val] (try (._step r wrap val)
@@ -346,4 +341,4 @@
            r (->HandledReducing r exh)
            buf-ref (dsb/unsynchronized-reference buf)]
        (ManyToManyChannel.
-        (LinkedList.) (LinkedList.) (._wrap ^dunaj.coll.IReducing r buf-ref) (atom false) (mutex/mutex) r))))
+        (LinkedList.) (LinkedList.) (._wrap ^dunaj.coll.IReducing r buf-ref) buf-ref (atom false) (mutex/mutex) r))))
