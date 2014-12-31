@@ -28,7 +28,7 @@
     (.size buf)))
 
 (defn fixed-buffer [^long n]
-  (db/merciful-buffer n))
+  (db/stretching-buffer n))
 
 
 #_(deftype DroppingBuffer [^LinkedList buf ^long n]

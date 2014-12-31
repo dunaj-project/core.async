@@ -990,7 +990,6 @@
   [coll ch]
   (reduce conj coll ch))
 
-
 (defn take
   "Returns a channel that will return, at most, n items from ch. After n items
    have been returned, or ch has been closed, the return channel will close.
