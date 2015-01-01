@@ -9,8 +9,6 @@
 ;; by Timothy Baldridge
 ;; April 13, 2013
 
-;; TODO: patch tools.analyzer
-
 (ns ^{:skip-wiki true}
   clojure.core.async.impl.ioc-macros
   (:refer-clojure :exclude [all])
@@ -1063,11 +1061,6 @@
   (clojure.pprint/pprint x)
   (println "----")
   x)
-
-
-
-
-
 
 (defn state-machine [body num-user-params env user-transitions]
   (-> (an-jvm/analyze body (make-env env))

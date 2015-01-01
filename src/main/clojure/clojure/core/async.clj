@@ -612,13 +612,16 @@
   the single result of applying f to init and the first item from the
   channel, then applying f to that result and the 2nd item, etc. If
   the channel closes without yielding items, returns init and f is not
-  called. ch must close before reduce produces a result or channel must produce reduced item."
+  called. ch must close before reduce produces a result.
+  Reduce handles reduced references from f."
   [f init ch]
   (go-loop [ret init]
-    (let [v (<! ch)]
-      (cond (nil? v) ret
-            (reduced? v) @ret
-            :else (recur (f ret v))))))
+    (if (reduced? ret)
+      @ret
+      (let [v (<! ch)]
+        (if (nil? v)
+          ret
+          (recur (f ret v)))))))
 
 (defn- bounded-count
   "Returns the smaller of n or the count of coll, without examining

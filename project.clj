@@ -1,11 +1,11 @@
-(defproject org.clojure/core.async "2.0.0-dunaj-SNAPSHOT"
+(defproject org.dunaj/core.async "0.1.0-dunaj-SNAPSHOT"
   :description "Facilities for async programming and communication in Clojure"
   :url "https://github.com/clojure/core.async"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :parent [org.clojure/pom.contrib "0.1.2"]
-  :dependencies [[org.clojure/clojure "1.6.0"]
-                 [org.clojure/tools.analyzer.jvm "2.0.0-dunaj-SNAPSHOT"]
+  :dependencies [#_[org.clojure/clojure "1.6.0"]
+                 [org.dunaj/tools.analyzer.jvm "0.6.6-dunaj-SNAPSHOT"]
                  #_[org.clojure/clojurescript "0.0-2371" :scope "provided"]]
   :global-vars {*warn-on-reflection* true}
   :source-paths ["src/main/clojure"]
