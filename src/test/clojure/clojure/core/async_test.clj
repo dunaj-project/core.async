@@ -1,6 +1,7 @@
 (ns clojure.core.async-test
   (:refer-clojure :exclude [map into reduce merge take partition partition-by])
-  (:require [clojure.core.async :refer :all :as a]
+  (:require [clojure.core.async.impl.buffers :as b]
+            [clojure.core.async :refer :all :as a]
             [clojure.test :refer :all]))
 
 
@@ -10,7 +11,8 @@
 (deftest buffers-tests
   (is (not (unblocking-buffer? (buffer 1))))
   (is (unblocking-buffer? (dropping-buffer 1)))
-  (is (unblocking-buffer? (sliding-buffer 1))))
+  (is (unblocking-buffer? (sliding-buffer 1)))
+  (is (unblocking-buffer? (b/promise-buffer))))
 
 (deftest basic-channel-test
   (let [c (default-chan)
@@ -133,6 +135,42 @@
            (put! c :enqueues (fn [_] (deliver p :proceeded)))  ;; enqueue a put
            (<!! c)        ;; make room in the buffer
            (deref p 250 :timeout)))))
+
+(deftest test-promise-chan
+  (testing "put on promise-chan fulfills all pending takers"
+    (let [c (promise-chan)
+          t1 (thread (<!! c))
+          t2 (thread (<!! c))]
+      (>!! c :val)
+      (is (= :val (<!! t1) (<!! t2)))
+      (testing "then puts succeed but are dropped"
+        (>!! c :LOST)
+        (is (= :val (<!! c))))
+      (testing "then takes succeed with the original value"
+        (is (= :val (<!! c) (<!! c) (<!! c))))
+      (testing "then after close takes return nil"
+        (close! c)
+        (is (= nil (<!! c) (<!! c))))))
+  (testing "close on promise-chan fulfills all pending takers"
+    (let [c (promise-chan)
+          t1 (thread (<!! c))
+          t2 (thread (<!! c))]
+      (close! c)
+      (is (= nil (<!! t1) (<!! t2)))
+      (testing "then takes return nil"
+        (is (= nil (<!! t1) (<!! t1) (<!! t2) (<!! t2)))))))
+
+(deftest offer-poll
+  (let [c (chan 2)]
+    (is (true? (offer! c 1)))
+    (is (true? (offer! c 2)))
+    (is (nil? (offer! c 3)))
+    (is (= 1 (<!! c)))
+    (is (= 2 (poll! c)))
+    (is (nil? (poll! c))))
+  (let [c (chan)]
+    (is (nil? (offer! c 1)))
+    (is (nil? (poll! c)))))
 
 (def ^:dynamic test-dyn false)
 
@@ -274,4 +312,10 @@
            (<!! (a/into [] (a/partition 2 (a/to-chan [1 2 2 3])))))))
   (testing "partition-by"
     (is (= [["a" "b"] [1 :2 3] ["c"]]
-           (<!! (a/into [] (a/partition-by string? (a/to-chan ["a" "b" 1 :2 3 "c"]))))))))
+           (<!! (a/into [] (a/partition-by string? (a/to-chan ["a" "b" 1 :2 3 "c"])))))))
+
+  (testing "reduce"
+    (is (= 0 (<!! (a/reduce + 0 (a/to-chan [])))))
+    (is (= 45 (<!! (a/reduce + 0 (a/to-chan (range 10))))))
+    (is (= :foo (<!! (a/reduce #(if (= %2 2) (reduced :foo) %1) 0 (a/to-chan (range 10)))))))
+  )

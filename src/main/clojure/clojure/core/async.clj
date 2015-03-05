@@ -35,16 +35,19 @@
 (set! *warn-on-reflection* true)
 
 (defn fn-handler
-  [f]
-  (reify
-   Lock
-   (lock [_])
-   (unlock [_])
+  ([f]
+   (fn-handler f true))
+  ([f blockable]
+   (reify
+     Lock
+     (lock [_])
+     (unlock [_])
 
-   impl/Handler
-   (active? [_] true)
-   (lock-id [_] 0)
-   (commit [_] f)))
+     impl/Handler
+     (active? [_] true)
+     (blockable? [_] blockable)
+     (lock-id [_] 0)
+     (commit [_] f))))
 
 (defn buffer
   "Returns a fixed buffer of size n. When full, puts will block/park."
@@ -85,6 +88,17 @@
   ([buf-or-n xform ex-handler]
      (when xform (assert buf-or-n "buffer must be supplied when transducer is"))
      (channels/chan (if (number? buf-or-n) (buffer buf-or-n) buf-or-n) xform ex-handler)))
+
+(defn promise-chan
+  "Creates a promise channel with an optional transducer, and an optional
+  exception-handler. A promise channel can take exactly one value that consumers
+  will receive. Once full, puts complete but val is dropped (no transfer).
+  Consumers will block until either a value is placed in the channel or the
+  channel is closed. See chan for the semantics of xform and ex-handler."
+  ([] (promise-chan nil))
+  ([xform] (promise-chan xform nil))
+  ([xform ex-handler]
+     (chan (buffers/promise-buffer) xform ex-handler)))
 
 (defn timeout
   "Returns a channel that will close after specified duration."
@@ -201,6 +215,7 @@
 
      impl/Handler
      (active? [_] @flag)
+     (blockable? [_] true)
      (lock-id [_] id)
      (commit [_]
              (reset! flag nil)
@@ -214,6 +229,7 @@
 
      impl/Handler
      (active? [_] (impl/active? flag))
+     (blockable? [_] true)
      (lock-id [_] (impl/lock-id flag))
      (commit [_]
              (impl/commit flag)
@@ -372,6 +388,19 @@
     (ioc/aset-all! state ioc/VALUE-IDX @cb)
     :recur))
 
+(defn offer!
+  "Puts a val into port if it's possible to do so immediately.
+   nil values are not allowed. Never blocks. Returns true if offer succeeds."
+  [port val]
+  (let [ret (impl/put! port val (fn-handler nop false))]
+    (when ret @ret)))
+
+(defn poll!
+  "Takes a val from port if it's possible to do so immediately.
+   Never blocks. Returns value if successful, nil otherwise."
+  [port]
+  (let [ret (impl/take! port (fn-handler nop false))]
+    (when ret @ret)))
 
 (defmacro go
   "Asynchronously executes the body, returning immediately to the
@@ -616,12 +645,13 @@
   Reduce handles reduced references from f."
   [f init ch]
   (go-loop [ret init]
-    (if (reduced? ret)
-      @ret
-      (let [v (<! ch)]
-        (if (nil? v)
-          ret
-          (recur (f ret v)))))))
+    (let [v (<! ch)]
+      (if (nil? v)
+        ret
+        (let [ret' (f ret v)]
+          (if (reduced? ret')
+            @ret'
+            (recur ret')))))))
 
 (defn- bounded-count
   "Returns the smaller of n or the count of coll, without examining
@@ -1042,6 +1072,7 @@
 
           impl/Handler
           (active? [_] (impl/active? fn1))
+          (blockable? [_] true)
           (lock-id [_] (impl/lock-id fn1))
           (commit [_]
            (let [f1 (impl/commit fn1)]

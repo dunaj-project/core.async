@@ -14,6 +14,7 @@
             [dunaj.coll :as dc]
             [dunaj.coll.helper :as dch]
             [dunaj.state :as ds]
+            [dunaj.buffer :as db]
             [dunaj.state.basic :as dsb]
             [dunaj.concurrent.port :as dp])
   (:import [java.util LinkedList Queue Iterator]
@@ -160,7 +161,7 @@
                      (do (.unlock mutex)
                          nil))))
                (do
-                 (when (impl/active? handler)
+                 (when (and (impl/active? handler) (impl/blockable? handler))
                    (assert-unlock mutex
                                   (< (.size puts) impl/MAX-QUEUE-SIZE)
                                   (str "No more than " impl/MAX-QUEUE-SIZE
@@ -256,11 +257,12 @@
                      (.unlock mutex)
                      nil))))
              (do
-               (assert-unlock mutex
-                              (< (.size takes) impl/MAX-QUEUE-SIZE)
-                              (str "No more than " impl/MAX-QUEUE-SIZE
-                                   " pending takes are allowed on a single channel."))
-               (.add takes handler)
+               (when (impl/blockable? handler)
+                 (assert-unlock mutex
+                                (< (.size takes) impl/MAX-QUEUE-SIZE)
+                                (str "No more than " impl/MAX-QUEUE-SIZE
+                                     " pending takes are allowed on a single channel."))
+                 (.add takes handler))
                (.unlock mutex)
                nil)))))))
 
@@ -296,6 +298,7 @@
                (.remove iter)
                (when (.hasNext iter)
                  (recur (.next iter)))))))
+       (when buf (db/-close! buf))
        (.unlock mutex)
        nil))))
 
