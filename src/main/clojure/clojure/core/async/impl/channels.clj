@@ -298,7 +298,8 @@
                (.remove iter)
                (when (.hasNext iter)
                  (recur (.next iter)))))))
-       (when buf (db/-close! buf))
+       (let [buf (when buf-ref @buf-ref)]
+         (when buf (db/-close! buf)))       
        (.unlock mutex)
        nil))))
 
