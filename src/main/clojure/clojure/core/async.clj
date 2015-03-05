@@ -392,14 +392,14 @@
   "Puts a val into port if it's possible to do so immediately.
    nil values are not allowed. Never blocks. Returns true if offer succeeds."
   [port val]
-  (let [ret (impl/put! port val (fn-handler nop false))]
+  (let [ret (dp/-put! port val (fn-handler nop false))]
     (when ret @ret)))
 
 (defn poll!
   "Takes a val from port if it's possible to do so immediately.
    Never blocks. Returns value if successful, nil otherwise."
   [port]
-  (let [ret (impl/take! port (fn-handler nop false))]
+  (let [ret (dp/-take! port (fn-handler nop false))]
     (when ret @ret)))
 
 (defmacro go
