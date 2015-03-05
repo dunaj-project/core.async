@@ -993,6 +993,17 @@
   [coll ch]
   (reduce conj coll ch))
 
+(defn into!
+  "Returns a source port containing the single (collection) result
+  of the items taken from the `_port_` conjoined to the supplied
+  `_coll_`. `_port_` must close before into! produces a result."
+  [coll port]
+  (if (dc/editable? coll)
+    (go (df/assoc-meta 
+         (dc/settle! (<! (reduce dc/conj! (dc/edit coll) port)))
+         (df/meta coll)))
+    (reduce conj coll port)))
+
 (defn take
   "Returns a channel that will return, at most, n items from ch. After n items
    have been returned, or ch has been closed, the return channel will close.
@@ -1237,6 +1248,7 @@
 (replace-var! dunaj.concurrent.port/map! map)
 (replace-var! dunaj.concurrent.port/split! split)
 (replace-var! dunaj.concurrent.port/reduce! reduce)
+(replace-var! dunaj.concurrent.port/into! into!)
 (replace-var! dunaj.concurrent.port/to-chan)
 (replace-var! dunaj.concurrent.port/merge! merge)
 (replace-var! dunaj.concurrent.port/take-n! take)
