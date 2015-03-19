@@ -1,4 +1,4 @@
-(defproject org.dunaj/core.async "0.1.0-dunaj_pre2"
+(defproject org.dunaj/core.async "0.1.0-dunaj_pre3"
   :description "Facilities for async programming and communication in Clojure"
   :url "https://github.com/clojure/core.async"
   :scm {:name "git" :url "https://github.com/dunaj-project/core.async"}
@@ -8,7 +8,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :parent [org.clojure/pom.contrib "0.1.2"]
   :dependencies [#_[org.clojure/clojure "1.6.0"]
-                 [org.dunaj/tools.analyzer.jvm "0.6.7-dunaj_pre2"]
+                 [org.dunaj/tools.analyzer.jvm "0.6.7-dunaj_pre3"]
                  #_[org.clojure/clojurescript "0.0-2816" :scope "provided"]]
   :global-vars {*warn-on-reflection* true}
   :source-paths ["src/main/clojure"]
