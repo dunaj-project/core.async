@@ -8,7 +8,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :parent [org.clojure/pom.contrib "0.1.2"]
   :dependencies [#_[org.clojure/clojure "1.6.0"]
-                 [org.dunaj/tools.analyzer.jvm "0.6.6"]
+                 [org.clojure/tools.analyzer.jvm "0.6.6"]
                  #_[org.clojure/clojurescript "0.0-3169" :scope "provided"]]
   :global-vars {*warn-on-reflection* true}
   :source-paths ["src/main/clojure"]
