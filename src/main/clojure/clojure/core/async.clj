@@ -19,6 +19,7 @@
             [clojure.core.async.impl.mutex :as mutex]
             [clojure.core.async.impl.concurrent :as conc]
             [clojure.bootstrap :refer [replace-var!]]
+            [clojure.dunaj-deftype]
             [dunaj.coll :as dc]
             [dunaj.concurrent.port :as dp]
             [dunaj.time :as dt]
@@ -71,7 +72,7 @@
   "Returns true if a channel created with buff will never block. That is to say,
    puts into this buffer will never cause the buffer to be full. "
   [buff]
-  (satisfies? dc/IFullAware buff))
+  (clojure.dunaj-deftype/satisfies? dc/IFullAware buff))
 
 (defn chan
   "Creates a channel with an optional buffer, an optional transducer
@@ -139,7 +140,7 @@
 (defn >!!
   "puts a val into port. nil values are not allowed. Will block if no
   buffer space is available. Returns true unless port is already closed."
-  ^boolean [port val]
+  [port val]
   (let [p (promise)
         ret (dp/-put! port val (fn-handler (fn [open?] (deliver p open?))))]
     (if ret
@@ -457,7 +458,7 @@
 (defmacro go-loop
   "Like (go (loop ...))"
   [bindings & body]
-  `(go (clojure.core/loop ~bindings ~@body)))
+  `(go (loop ~bindings ~@body)))
 
 (defn pipe
   "Takes elements from the from channel and supplies them to the to

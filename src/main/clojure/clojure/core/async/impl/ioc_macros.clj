@@ -967,7 +967,7 @@
           (let [old-frame# (clojure.lang.Var/getThreadBindingFrame)
                 ret-value# (try
                              (clojure.lang.Var/resetThreadBindingFrame (aget-object ~state-sym ~BINDINGS-IDX))
-                             (clojure.core/loop []
+                             (loop []
                                (let [result# (case (int (aget-object ~state-sym ~STATE-IDX))
                                                ~@(mapcat
                                                   (fn [[id blk]]
