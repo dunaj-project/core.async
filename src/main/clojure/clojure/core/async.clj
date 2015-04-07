@@ -8,7 +8,7 @@
 
 (ns clojure.core.async
   (:refer-clojure :exclude [reduce into merge map take partition
-                            partition-by] :as core)
+                            partition-by reify] :as core)
   (:require [clojure.core.async.impl.protocols :as impl :refer
              [Mix admix* unmix* unmix-all* toggle* solo-mode*]]
             [clojure.core.async.impl.channels :as channels]
@@ -19,7 +19,7 @@
             [clojure.core.async.impl.mutex :as mutex]
             [clojure.core.async.impl.concurrent :as conc]
             [clojure.bootstrap :refer [replace-var!]]
-            [clojure.dunaj-deftype]
+            [clojure.dunaj-deftype :refer [reify]]
             [dunaj.coll :as dc]
             [dunaj.concurrent.port :as dp]
             [dunaj.time :as dt]
