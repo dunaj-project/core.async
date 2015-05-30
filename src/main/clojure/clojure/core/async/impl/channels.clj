@@ -91,7 +91,7 @@
                      done? (reduced? nwrap)
                      nwrap (dch/strip-reduced nwrap)]
                  (set! wrap nwrap)
-                 (loop [buf @buf-ref]
+                 (loop [buf @buf-ref to-dispatch []]
                    (if (pos? (count buf))
                      (let [iter (.iterator takes)
                            take-cb (when (.hasNext iter)
@@ -109,16 +109,17 @@
                          (let [val (dc/peek buf)
                                buf (dc/pop! buf)
                                _ (ds/reset! buf-ref buf)]
-                           (dispatch/run (fn [] (take-cb val)))
-                           (recur @buf-ref))
+                           (recur @buf-ref (conj to-dispatch (fn [] (take-cb val)))))
                          (do
                            (when done?
                              (abort this))
-                           (.unlock mutex))))
+                           (.unlock mutex)
+                           (doseq [f to-dispatch] (dispatch/run f)))))
                      (do
                        (when done?
                          (abort this))
-                       (.unlock mutex))))
+                       (.unlock mutex)
+                       (doseq [f to-dispatch] (dispatch/run f)))))
                  (box true))
                (do (.unlock mutex)
                    nil))))
