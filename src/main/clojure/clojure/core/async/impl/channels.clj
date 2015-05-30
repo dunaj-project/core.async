@@ -89,38 +89,37 @@
              (if put-cb
                (let [nwrap (._step r wrap val)
                      done? (reduced? nwrap)
-                     nwrap (dch/strip-reduced nwrap)
-                     buf @buf-ref]
+                     nwrap (dch/strip-reduced nwrap)]
                  (set! wrap nwrap)
-                 (if (pos? (count buf))
-                   (let [iter (.iterator takes)
-                         take-cb (when (.hasNext iter)
-                                   (loop [^Lock taker (.next iter)]
-                                     (.lock taker)
-                                     (let [ret (and (impl/active? taker) (impl/commit taker))]
-                                       (.unlock taker)
-                                       (if ret
-                                         (do
-                                           (.remove iter)
-                                           ret)
-                                         (when (.hasNext iter)
-                                           (recur (.next iter)))))))]
-                     (if take-cb
-                       (let [val (dc/peek buf)
-                             buf (dc/pop! buf)
-                             _ (ds/reset! buf-ref buf)]
-                         (when done?
-                           (abort this))
-                         (.unlock mutex)
-                         (dispatch/run (fn [] (take-cb val))))
-                       (do
-                         (when done?
-                           (abort this))
-                         (.unlock mutex))))
-                   (do
-                     (when done?
-                       (abort this))
-                     (.unlock mutex)))
+                 (loop [buf @buf-ref to-dispatch []]
+                   (if (pos? (count buf))
+                     (let [iter (.iterator takes)
+                           take-cb (when (.hasNext iter)
+                                     (loop [^Lock taker (.next iter)]
+                                       (.lock taker)
+                                       (let [ret (and (impl/active? taker) (impl/commit taker))]
+                                         (.unlock taker)
+                                         (if ret
+                                           (do
+                                             (.remove iter)
+                                             ret)
+                                           (when (.hasNext iter)
+                                             (recur (.next iter)))))))]
+                       (if take-cb
+                         (let [val (dc/peek buf)
+                               buf (dc/pop! buf)
+                               _ (ds/reset! buf-ref buf)]
+                           (recur @buf-ref (conj to-dispatch (fn [] (take-cb val)))))
+                         (do
+                           (when done?
+                             (abort this))
+                           (.unlock mutex)
+                           (doseq [f to-dispatch] (dispatch/run f)))))
+                     (do
+                       (when done?
+                         (abort this))
+                       (.unlock mutex)
+                       (doseq [f to-dispatch] (dispatch/run f)))))
                  (box true))
                (do (.unlock mutex)
                    nil))))

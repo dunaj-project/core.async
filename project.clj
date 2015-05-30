@@ -1,4 +1,4 @@
-(defproject org.dunaj/core.async "0.1.0-lite_pre4"
+(defproject org.dunaj/core.async "0.1.0-lite_pre5"
   :description "Facilities for async programming and communication in Clojure"
   :url "https://github.com/clojure/core.async"
   :scm {:name "git" :url "https://github.com/dunaj-project/core.async"}
